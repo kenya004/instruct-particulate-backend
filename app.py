@@ -610,15 +610,27 @@ DEMO_CSS = """
     overflow: visible !important;
     padding-right: 0 !important;
   }
+  .kin-panel {
+    display: flex !important;
+    flex-direction: column !important;
+    overflow: visible !important;
+    opacity: 1 !important;
+    visibility: visible !important;
+  }
   .mesh-panel .model3d-container,
   .mesh-panel model-viewer {
     height: clamp(240px, 44vw, 340px) !important;
   }
   .kin-panel .kinematic-editor-host,
   .kin-panel .kinematic-editor-host > div,
-  #kinematic_tree_editor_html {
+  #kinematic_tree_editor_html,
+  #kinematic_tree_editor_html > div,
+  #kinematic_tree_editor_html .html-container {
+    display: block !important;
     min-height: clamp(440px, 72vw, 580px) !important;
     height: clamp(440px, 72vw, 580px) !important;
+    opacity: 1 !important;
+    visibility: visible !important;
   }
   .prompt-panel #point-prompt-picker {
     flex: 0 0 clamp(360px, 58vw, 500px) !important;
@@ -1138,6 +1150,7 @@ KINEMATIC_TREE_EDITOR_CSS = """
     flex: 1 1 auto !important;
     min-height: clamp(260px, 48vw, 420px) !important;
     height: auto !important;
+    width: 100% !important;
     opacity: 1 !important;
     visibility: visible !important;
   }
@@ -1345,10 +1358,13 @@ KINEMATIC_TREE_EDITOR_JS = r"""
 
     function currentNodeSize() {
       const node = nodeLayer.querySelector(".kin-node");
-      if (!node) {
+    if (!node) {
+      return { width: NODE_WIDTH, height: NODE_HEIGHT };
+    }
+    const rect = node.getBoundingClientRect();
+      if (!Number.isFinite(rect.width) || rect.width < 8 || !Number.isFinite(rect.height) || rect.height < 8) {
         return { width: NODE_WIDTH, height: NODE_HEIGHT };
       }
-      const rect = node.getBoundingClientRect();
       return {
         width: Math.max(1, rect.width || NODE_WIDTH),
         height: Math.max(1, rect.height || NODE_HEIGHT)
@@ -1443,16 +1459,20 @@ KINEMATIC_TREE_EDITOR_JS = r"""
       return positions;
     }
 
-    function relayoutForCurrentCanvas() {
+    function refitPositionsForCanvas(previousSize, currentSize) {
       if (state.dragging) {
         return;
       }
-      const tree = exportTree();
-      const positions = layoutTreePositions(tree.links, state.joints);
-      state.links.forEach((link, index) => {
-        const position = positions[index] || defaultNodePosition(index);
-        link.x = position.x;
-        link.y = position.y;
+      const { width: nodeWidth, height: nodeHeight } = currentNodeSize();
+      const previousMaxX = Math.max(1, (previousSize.width || currentSize.width) - nodeWidth - 10);
+      const previousMaxY = Math.max(1, (previousSize.height || currentSize.height) - nodeHeight - 10);
+      const nextMaxX = Math.max(1, currentSize.width - nodeWidth - 10);
+      const nextMaxY = Math.max(1, currentSize.height - nodeHeight - 10);
+      const scaleX = nextMaxX / previousMaxX;
+      const scaleY = nextMaxY / previousMaxY;
+      state.links.forEach((link) => {
+        link.x = (Number(link.x) || 0) * scaleX;
+        link.y = (Number(link.y) || 0) * scaleY;
       });
       clampNodePositions();
       render();
@@ -1471,12 +1491,13 @@ KINEMATIC_TREE_EDITOR_JS = r"""
         if (width <= 0 || height <= 0) {
           return;
         }
+        const previousSize = lastCanvasSize;
         const changed =
           Math.abs(width - lastCanvasSize.width) > 2 ||
           Math.abs(height - lastCanvasSize.height) > 2;
         lastCanvasSize = { width, height };
         if (changed) {
-          relayoutForCurrentCanvas();
+          refitPositionsForCanvas(previousSize, lastCanvasSize);
           renderPromptMesh();
         }
       });

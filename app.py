@@ -194,6 +194,41 @@ DEMO_CSS = """
 .inference-params-panel .form {
   gap: 6px !important;
 }
+.toggle-switch input[type="checkbox"] {
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  width: 42px !important;
+  height: 24px !important;
+  border: 1px solid var(--demo-border) !important;
+  border-radius: 999px !important;
+  background: var(--demo-border) !important;
+  cursor: pointer;
+  position: relative;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+.toggle-switch input[type="checkbox"]::before {
+  content: "";
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  top: 2px;
+  left: 2px;
+  border-radius: 999px;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.28);
+  transition: transform 120ms ease;
+}
+.toggle-switch input[type="checkbox"]:checked {
+  border-color: var(--demo-focus) !important;
+  background: var(--demo-focus) !important;
+}
+.toggle-switch input[type="checkbox"]:checked::before {
+  transform: translateX(18px);
+}
+.toggle-switch label,
+.toggle-switch span {
+  color: var(--demo-text) !important;
+}
 .mesh-examples {
   flex: 0 0 auto;
   max-height: 180px;
@@ -884,8 +919,10 @@ KINEMATIC_TREE_EDITOR_CSS = """
   -webkit-text-fill-color: var(--kin-close-cross) !important;
 }
 .kin-node input {
-  flex: 1 1 auto;
+  flex: 0 0 65%;
   min-width: 0;
+  width: 65%;
+  max-width: 65%;
   height: 30px;
   border: 1px solid var(--kin-node-input-border);
   border-radius: 5px;
@@ -4071,46 +4108,17 @@ def create_gradio_app(app: InstructParticulateApp) -> gr.Blocks:
 
             with gr.Column(scale=1, min_width=300, elem_classes=["demo-panel", "prompt-panel"]):
                 gr.HTML(_point_prompt_picker_html())
+                num_query_points = gr.State(51200)
+                per_face_queries = gr.State(3)
+                query_batch_size = gr.State(51200)
+                animation_frames = gr.State(50)
+                connectivity = gr.State(True)
+                confidence_temperature = gr.State(1.0)
                 with gr.Accordion("Inference Parameters", open=True, elem_classes=["inference-params-panel"]):
-                    with gr.Row():
-                        num_query_points = gr.Number(
-                            value=102400,
-                            label="Joint Refit Query Points",
-                            precision=0,
-                            minimum=512,
-                        )
-                        per_face_queries = gr.Number(
-                            value=3,
-                            label="Segmentation Queries Per Face",
-                            precision=0,
-                            minimum=0,
-                        )
-                    with gr.Row():
-                        query_batch_size = gr.Number(
-                            value=8192,
-                            label="Query Batch Size",
-                            precision=0,
-                            minimum=256,
-                        )
-                        animation_frames = gr.Number(
-                            value=50,
-                            label="Animation Frames",
-                            precision=0,
-                            minimum=2,
-                        )
-                    with gr.Row():
-                        strict = gr.Checkbox(
-                            label="Strict Face Postprocess",
-                            value=True,
-                        )
-                        connectivity = gr.Checkbox(
-                            label="Enforce Connectivity Per Part",
-                            value=False,
-                        )
-                    confidence_temperature = gr.Number(
-                        value=1.0,
-                        label="Joint Confidence Temperature",
-                        minimum=0.01,
+                    strict = gr.Checkbox(
+                        label="Connected Component Postprocessing",
+                        value=True,
+                        elem_classes=["toggle-switch"],
                     )
                 with gr.Row(elem_classes=["prompt-run-row"]):
                     run_button = gr.Button("Run Inference", variant="primary")

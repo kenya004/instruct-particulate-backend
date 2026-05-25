@@ -153,7 +153,7 @@ DEMO_CSS = """
 }
 .mesh-examples {
   flex: 0 0 auto;
-  max-height: 82px;
+  max-height: 180px;
   overflow-y: auto;
   border: 1px solid #d7deea;
   border-radius: 6px;
@@ -3551,6 +3551,35 @@ def create_gradio_app(app: InstructParticulateApp) -> gr.Blocks:
                     visible=False,
                     elem_classes=["kinematic-json-sync"],
                 )
+                if examples:
+                    with gr.Column(elem_classes=["mesh-examples"]) as examples_container:
+                        pass
+
+            with gr.Column(scale=1, elem_classes=["demo-panel", "kin-panel"]):
+                extract_button = gr.Button("Extract Kinematic Structure")
+                auto_status = gr.Textbox(
+                    label="Kinematic Extraction Status",
+                    interactive=False,
+                )
+                gr.HTML(
+                    _kinematic_tree_editor_html(),
+                    elem_id="kinematic_tree_editor_html",
+                    elem_classes=["kinematic-editor-host"],
+                    min_height=500,
+                    container=False,
+                    padding=False,
+                )
+                with gr.Accordion("Auto-Kinematic Rendered Images", open=False):
+                    auto_render_gallery = gr.Gallery(
+                        label="Auto-Kinematic Rendered Images",
+                        columns=3,
+                        height=160,
+                        object_fit="contain",
+                        elem_classes=["capped-output"],
+                    )
+
+            with gr.Column(scale=1, elem_classes=["demo-panel", "prompt-panel"]):
+                gr.HTML(_point_prompt_picker_html())
                 with gr.Accordion("Inference Parameters", open=True, elem_classes=["inference-params-panel"]):
                     with gr.Row():
                         num_query_points = gr.Number(
@@ -3592,35 +3621,6 @@ def create_gradio_app(app: InstructParticulateApp) -> gr.Blocks:
                         label="Joint Confidence Temperature",
                         minimum=0.01,
                     )
-                if examples:
-                    with gr.Column(elem_classes=["mesh-examples"]) as examples_container:
-                        pass
-
-            with gr.Column(scale=1, elem_classes=["demo-panel", "kin-panel"]):
-                extract_button = gr.Button("Extract Kinematic Structure")
-                auto_status = gr.Textbox(
-                    label="Kinematic Extraction Status",
-                    interactive=False,
-                )
-                gr.HTML(
-                    _kinematic_tree_editor_html(),
-                    elem_id="kinematic_tree_editor_html",
-                    elem_classes=["kinematic-editor-host"],
-                    min_height=500,
-                    container=False,
-                    padding=False,
-                )
-                with gr.Accordion("Auto-Kinematic Rendered Images", open=False):
-                    auto_render_gallery = gr.Gallery(
-                        label="Auto-Kinematic Rendered Images",
-                        columns=3,
-                        height=160,
-                        object_fit="contain",
-                        elem_classes=["capped-output"],
-                    )
-
-            with gr.Column(scale=1, elem_classes=["demo-panel", "prompt-panel"]):
-                gr.HTML(_point_prompt_picker_html())
                 with gr.Row(elem_classes=["prompt-run-row"]):
                     run_button = gr.Button("Run Inference", variant="primary")
 

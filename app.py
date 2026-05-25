@@ -627,10 +627,11 @@ DEMO_CSS = """
   #kinematic_tree_editor_html > div,
   #kinematic_tree_editor_html .html-container {
     display: block !important;
-    min-height: clamp(440px, 72vw, 580px) !important;
-    height: clamp(440px, 72vw, 580px) !important;
+    min-height: 540px !important;
+    height: auto !important;
     opacity: 1 !important;
     visibility: visible !important;
+    overflow: visible !important;
   }
   .prompt-panel #point-prompt-picker {
     flex: 0 0 clamp(360px, 58vw, 500px) !important;
@@ -784,6 +785,7 @@ KINEMATIC_TREE_EDITOR_CSS = """
   flex: 1 1 auto;
   min-height: 500px;
   height: 100%;
+  width: 100%;
   display: flex;
   flex-direction: column;
 }
@@ -854,6 +856,7 @@ KINEMATIC_TREE_EDITOR_CSS = """
   flex: 1 1 auto;
   min-height: 340px;
   height: 100%;
+  width: 100%;
   overflow: hidden;
   background:
     linear-gradient(var(--kin-grid) 1px, transparent 1px),
@@ -1138,18 +1141,19 @@ KINEMATIC_TREE_EDITOR_CSS = """
   #kin-tree-editor.kin-tree-panel {
     display: flex !important;
     flex: 0 0 auto !important;
-    min-height: clamp(440px, 72vw, 580px) !important;
-    height: clamp(440px, 72vw, 580px) !important;
+    min-height: 520px !important;
+    height: auto !important;
     max-height: none !important;
-    overflow: hidden !important;
+    width: 100% !important;
+    overflow: visible !important;
     opacity: 1 !important;
     visibility: visible !important;
   }
   #kin-tree-editor .kin-tree-canvas {
     display: block !important;
-    flex: 1 1 auto !important;
-    min-height: clamp(260px, 48vw, 420px) !important;
-    height: auto !important;
+    flex: 0 0 330px !important;
+    min-height: 330px !important;
+    height: 330px !important;
     width: 100% !important;
     opacity: 1 !important;
     visibility: visible !important;
@@ -1167,11 +1171,13 @@ KINEMATIC_TREE_EDITOR_CSS = """
 }
 @media (max-width: 460px) {
   #kin-tree-editor.kin-tree-panel {
-    min-height: 440px !important;
-    height: 440px !important;
+    min-height: 500px !important;
+    height: auto !important;
   }
   #kin-tree-editor .kin-tree-canvas {
-    min-height: 250px !important;
+    flex-basis: 300px !important;
+    min-height: 300px !important;
+    height: 300px !important;
   }
   #kin-tree-editor .kin-node {
     width: min(128px, 48vw) !important;
@@ -1340,7 +1346,31 @@ KINEMATIC_TREE_EDITOR_JS = r"""
       lastPromptValue: null
     };
 
+    function ensureTreeCanvasSize() {
+      const narrow = window.matchMedia("(max-width: 1099px)").matches;
+      const veryNarrow = window.matchMedia("(max-width: 460px)").matches;
+      if (!narrow && canvas.clientHeight >= 120 && canvas.clientWidth >= 120) {
+        return;
+      }
+      const panelHeight = veryNarrow ? 500 : 520;
+      const canvasHeight = veryNarrow ? 300 : 330;
+      root.style.display = "flex";
+      root.style.width = "100%";
+      root.style.minHeight = `${panelHeight}px`;
+      root.style.height = "auto";
+      root.style.overflow = "visible";
+      root.style.opacity = "1";
+      root.style.visibility = "visible";
+      canvas.style.display = "block";
+      canvas.style.width = "100%";
+      canvas.style.minHeight = `${canvasHeight}px`;
+      canvas.style.height = `${canvasHeight}px`;
+      canvas.style.opacity = "1";
+      canvas.style.visibility = "visible";
+    }
+
     function defaultNodePosition(index) {
+      ensureTreeCanvasSize();
       const width = canvas.clientWidth || 320;
       const height = canvas.clientHeight || 380;
       const { width: nodeWidth, height: nodeHeight } = currentNodeSize();
@@ -1382,6 +1412,7 @@ KINEMATIC_TREE_EDITOR_JS = r"""
     }
 
     function layoutTreePositions(rawLinks, joints) {
+      ensureTreeCanvasSize();
       const width = Math.max(canvas.clientWidth || 640, NODE_WIDTH + 72);
       const height = Math.max(canvas.clientHeight || 420, NODE_HEIGHT + 72);
       const marginX = 28;
@@ -1486,6 +1517,7 @@ KINEMATIC_TREE_EDITOR_JS = r"""
       }
       relayoutAnimationFrame = window.requestAnimationFrame(() => {
         relayoutAnimationFrame = null;
+        ensureTreeCanvasSize();
         const width = canvas.clientWidth || 0;
         const height = canvas.clientHeight || 0;
         if (width <= 0 || height <= 0) {
@@ -1504,6 +1536,7 @@ KINEMATIC_TREE_EDITOR_JS = r"""
     }
 
     function loadTree(tree, options = {}) {
+      ensureTreeCanvasSize();
       const links = Array.isArray(tree.links) ? tree.links : [];
       const joints = Array.isArray(tree.joints)
         ? tree.joints
@@ -2097,6 +2130,7 @@ KINEMATIC_TREE_EDITOR_JS = r"""
     }
 
     function render() {
+      ensureTreeCanvasSize();
       addJointButton.classList.toggle("active", state.connectMode);
       renderEdges();
 

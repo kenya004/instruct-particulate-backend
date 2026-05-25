@@ -82,9 +82,8 @@ CHECKPOINT_REPO_FILENAME = os.environ.get(
     "INSTRUCT_PARTICULATE_CHECKPOINT_REPO_FILENAME",
     "step_0080000.pt",
 )
-OUTPUT_ROOT = Path(
-    os.environ.get("INSTRUCT_PARTICULATE_OUTPUT_ROOT", str(REPO_ROOT / "data"))
-)
+DEFAULT_OUTPUT_ROOT = Path("/data") if Path("/data").exists() else REPO_ROOT / "data"
+OUTPUT_ROOT = Path(os.environ.get("INSTRUCT_PARTICULATE_OUTPUT_ROOT", str(DEFAULT_OUTPUT_ROOT)))
 UP_DIR_CHOICES = ["+X", "-X", "+Y", "-Y", "+Z", "-Z"]
 AUTO_KINEMATICS_MODEL_ID = "gemini-3.5-flash"
 AUTO_KINEMATICS_REASONING_EFFORT = "medium"

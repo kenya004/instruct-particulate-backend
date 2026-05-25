@@ -46,17 +46,39 @@ else:  # pragma: no cover - used only in non-Blender unit tests
     IMPORT_FUNCTIONS = {}
 
 
-def orient_saved_raster_payload(buffer: np.ndarray) -> np.ndarray:
+UP_DIR_ROTATIONS = {
+    "+X": ((0.0, 0.0, -1.0), (0.0, 1.0, 0.0), (1.0, 0.0, 0.0)),
+    "-X": ((0.0, 0.0, 1.0), (0.0, 1.0, 0.0), (-1.0, 0.0, 0.0)),
+    "+Y": ((1.0, 0.0, 0.0), (0.0, 0.0, -1.0), (0.0, 1.0, 0.0)),
+    "-Y": ((1.0, 0.0, 0.0), (0.0, 0.0, 1.0), (0.0, -1.0, 0.0)),
+    "+Z": ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0)),
+    "-Z": ((1.0, 0.0, 0.0), (0.0, -1.0, 0.0), (0.0, 0.0, -1.0)),
+}
+
+
+def canonicalize_up_dir(up_dir: str) -> str:
+    token = str(up_dir).strip().upper()
+    if token in {"X", "Y", "Z"}:
+        token = f"+{token}"
+    if token not in UP_DIR_ROTATIONS:
+        raise ValueError(f"Invalid up direction: {up_dir}")
+    return token
+
+
+def orient_saved_raster_payload(buffer: np.ndarray, *, flip: bool) -> np.ndarray:
     """Match the final saved image orientation for per-pixel render payloads."""
-    oriented = np.flip(np.flip(np.asarray(buffer), axis=0), axis=1)
+    oriented = np.asarray(buffer)
+    if flip:
+        oriented = np.flip(np.flip(oriented, axis=0), axis=1)
     return oriented.copy()
 
 
-def orient_saved_render_image(image: Image.Image) -> Image.Image:
+def orient_saved_render_image(image: Image.Image, *, flip: bool) -> Image.Image:
     """Apply the same output-space transform as the saved raster payloads."""
+    if not flip:
+        return image.copy()
     oriented = image.transpose(Image.FLIP_TOP_BOTTOM)
-    oriented = oriented.transpose(Image.FLIP_LEFT_RIGHT)
-    return oriented
+    return oriented.transpose(Image.FLIP_LEFT_RIGHT)
 
 
 def parse_args() -> argparse.Namespace:
@@ -70,6 +92,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--engine", type=str, default="CYCLES")
     parser.add_argument("--samples", type=int, default=8)
     parser.add_argument("--azimuths", type=float, nargs="+", required=True)
+    parser.add_argument("--up-dir", type=str, default="")
     return parser.parse_args(argv)
 
 
@@ -211,6 +234,57 @@ def get_scene_root_objects() -> list[bpy.types.Object]:
 
 def get_scene_meshes() -> list[bpy.types.Object]:
     return [obj for obj in bpy.context.scene.objects.values() if isinstance(obj.data, bpy.types.Mesh)]
+
+
+def create_render_root() -> bpy.types.Object:
+    root = bpy.data.objects.new("AutoKinematicsRenderRoot", None)
+    bpy.context.scene.collection.objects.link(root)
+    imported_roots = [
+        obj
+        for obj in bpy.context.scene.objects.values()
+        if obj.parent is None and obj.type not in {"CAMERA", "LIGHT"}
+    ]
+    for obj in imported_roots:
+        if obj == root:
+            continue
+        obj.parent = root
+        obj.matrix_parent_inverse = root.matrix_world.inverted()
+    return root
+
+
+def rotation_matrix_for_up(up_dir: str) -> Matrix:
+    return Matrix(UP_DIR_ROTATIONS[canonicalize_up_dir(up_dir)]).to_4x4()
+
+
+def import_basis_to_blender(mesh_path: Path) -> Matrix:
+    suffix = mesh_path.suffix.lower().lstrip(".")
+    if suffix in {"glb", "gltf"}:
+        return rotation_matrix_for_up("+Y")
+    return Matrix.Identity(4)
+
+
+def orient_and_normalize(
+    root: bpy.types.Object,
+    *,
+    up_dir: str,
+    import_basis: Matrix,
+) -> None:
+    # Keep auto-kinematic renders in the same selected-upright frame as the
+    # upright orientation picker: undo Blender's glTF import basis, then apply
+    # the user-selected source-up -> +Z rotation.
+    rotation = rotation_matrix_for_up(up_dir) @ import_basis.inverted()
+    root.matrix_world = rotation
+    bpy.context.view_layer.update()
+
+    bbox_min, bbox_max = scene_bbox()
+    center = (bbox_min + bbox_max) * 0.5
+    extent = bbox_max - bbox_min
+    max_extent = max(float(extent.x), float(extent.y), float(extent.z), 1e-6)
+    scale = 1.0 / max_extent
+    scale_matrix = Matrix.Diagonal((scale, scale, scale, 1.0))
+    center_matrix = Matrix.Translation(-center)
+    root.matrix_world = scale_matrix @ center_matrix @ rotation
+    bpy.context.view_layer.update()
 
 
 def scene_bbox() -> tuple[Vector, Vector]:
@@ -421,8 +495,18 @@ def main() -> None:
         resolution=int(args.resolution),
         samples=int(args.samples),
     )
-    load_object(args.mesh_path.resolve())
-    normalize_scene()
+    mesh_path = args.mesh_path.resolve()
+    load_object(mesh_path)
+    selected_up_dir = str(args.up_dir).strip()
+    if selected_up_dir:
+        root = create_render_root()
+        orient_and_normalize(
+            root,
+            up_dir=canonicalize_up_dir(selected_up_dir),
+            import_basis=import_basis_to_blender(mesh_path),
+        )
+    else:
+        normalize_scene()
     init_lighting()
     intrinsic = configure_camera(
         camera,
@@ -458,17 +542,17 @@ def main() -> None:
             intrinsic=intrinsic.astype(np.float32),
             camera_to_world=camera_to_world.astype(np.float32),
             world_to_camera=world_to_camera.astype(np.float32),
-            face_ids=orient_saved_raster_payload(face_ids).astype(np.int32),
-            hit_points=orient_saved_raster_payload(hit_points).astype(np.float32),
-            normals=orient_saved_raster_payload(normals).astype(np.float32),
-            depth=orient_saved_raster_payload(depth).astype(np.float32),
+            face_ids=orient_saved_raster_payload(face_ids, flip=not selected_up_dir).astype(np.int32),
+            hit_points=orient_saved_raster_payload(hit_points, flip=not selected_up_dir).astype(np.float32),
+            normals=orient_saved_raster_payload(normals, flip=not selected_up_dir).astype(np.float32),
+            depth=orient_saved_raster_payload(depth, flip=not selected_up_dir).astype(np.float32),
             azimuth_deg=np.float32(azimuth_deg),
             elevation_deg=np.float32(90.0 - float(args.pitch_deg)),
             pitch_deg=np.float32(args.pitch_deg),
         )
         if Image is not None:
             with Image.open(image_path) as image:
-                oriented = orient_saved_render_image(image)
+                oriented = orient_saved_render_image(image, flip=not selected_up_dir)
                 oriented.save(image_path)
         print(
             f"Rendered auto-kinematics Blender view {image_id + 1}/{len(args.azimuths)} "

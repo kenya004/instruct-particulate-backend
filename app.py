@@ -2903,9 +2903,11 @@ class InstructParticulateApp:
                 "Rendering",
             )
             rendered_views = render_mesh_auto_kinematics_views(
-                mesh_geometry.render_mesh,
+                mesh_geometry.original_mesh,
                 output_dir=renders_dir,
                 azimuths_deg=DEFAULT_AUTO_KINEMATICS_AZIMUTHS,
+                mesh_path=mesh_path,
+                up_dir=canonical_up,
                 blender_bin=os.environ.get("BLENDER_BIN") or None,
             )
             gallery_items = _auto_render_gallery_items(rendered_views)
@@ -2939,7 +2941,7 @@ class InstructParticulateApp:
                 lifted=lifted,
                 center=np.asarray(mesh_geometry.center, dtype=np.float32),
                 scale=float(mesh_geometry.scale),
-                render_to_model_rotation=mesh_geometry.render_to_model_rotation,
+                render_to_model_rotation=None,
             )
             save_auto_kinematics_artifacts(
                 output_dir=auto_output_dir,

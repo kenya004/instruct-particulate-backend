@@ -213,6 +213,8 @@ def render_mesh_auto_kinematics_views(
     *,
     output_dir: Path,
     azimuths_deg: Sequence[float],
+    mesh_path: str | os.PathLike[str] | None = None,
+    up_dir: str | None = None,
     pitch_deg: float = DEFAULT_RENDER_PITCH_DEG,
     camera_distance: float = DEFAULT_RENDER_DISTANCE,
     resolution: int = DEFAULT_RENDER_RESOLUTION,
@@ -227,8 +229,13 @@ def render_mesh_auto_kinematics_views(
     if not blender_script_path.exists():
         raise FileNotFoundError(f"Auto-kinematics Blender script does not exist: {blender_script_path}")
 
-    render_mesh_path = output_dir / "_auto_kinematics_render_mesh.glb"
-    mesh.export(render_mesh_path)
+    if mesh_path is None:
+        render_mesh_path = output_dir / "_auto_kinematics_render_mesh.glb"
+        mesh.export(render_mesh_path)
+    else:
+        render_mesh_path = Path(mesh_path).expanduser().resolve()
+        if not render_mesh_path.exists():
+            raise FileNotFoundError(f"Auto-kinematics render mesh path does not exist: {render_mesh_path}")
     command = [
         str(blender_path),
         "-b",
@@ -252,6 +259,8 @@ def render_mesh_auto_kinematics_views(
         "--azimuths",
         *[repr(float(azimuth_deg)) for azimuth_deg in azimuths],
     ]
+    if up_dir is not None and str(up_dir).strip():
+        command.extend(["--up-dir", str(up_dir)])
     print(
         f"Rendering {len(azimuths)} auto-kinematics views with Blender at {blender_path}"
     )

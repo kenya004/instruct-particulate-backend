@@ -111,7 +111,6 @@ OUTPUT_ROOT = Path(os.environ.get("INSTRUCT_PARTICULATE_OUTPUT_ROOT", str(DEFAUL
 UP_DIR_CHOICES = ["+X", "-X", "+Y", "-Y", "+Z", "-Z"]
 AUTO_KINEMATICS_MODEL_ID = "gemini-3.5-flash"
 AUTO_KINEMATICS_REASONING_EFFORT = "medium"
-MESH_CACHE_NAMESPACE = "v2"
 AUTO_KINEMATICS_CACHE_VERSION = 2
 
 DEFAULT_KINEMATIC_TREE = {
@@ -2614,8 +2613,12 @@ def _mesh_file_sha256(mesh_path: Path) -> str:
     return digest.hexdigest()
 
 
+def _mesh_cache_root() -> Path:
+    return OUTPUT_ROOT / "mesh_cache"
+
+
 def _mesh_cache_dir(mesh_hash: str) -> Path:
-    return OUTPUT_ROOT / "mesh_cache" / MESH_CACHE_NAMESPACE / str(mesh_hash)
+    return _mesh_cache_root() / str(mesh_hash)
 
 
 def _timestamped_mesh_output_dir(output_root: Path, mesh_hash: str, suffix: str = "") -> Path:
@@ -4176,7 +4179,6 @@ class InstructParticulateApp:
                 gr.update(),
                 gr.update(),
                 gr.update(),
-                gr.update(),
                 gr.update(interactive=False),
             )
 
@@ -4226,7 +4228,6 @@ class InstructParticulateApp:
         return (
             str(output_dir / "animated_textured.glb"),
             str(output_dir / "mesh_parts_with_axes.glb"),
-            gr.update(),
             str(zip_path),
             str(output_dir),
             f"Success using input up direction {canonical_up}. Wrote outputs to {output_dir}",
@@ -4935,7 +4936,6 @@ def create_gradio_app(app: InstructParticulateApp) -> gr.Blocks:
             outputs=[
                 animated_model,
                 prediction_model,
-                query_visualization,
                 output_zip,
                 latest_output_dir,
                 status,

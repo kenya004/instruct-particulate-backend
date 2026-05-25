@@ -2428,6 +2428,197 @@ def _set_preview_axes_equal(ax: Any, vertices: np.ndarray) -> None:
     ax.set_box_aspect((1, 1, 1))
 
 
+def _preview_face_colors(mesh: Any) -> np.ndarray:
+    faces = np.asarray(mesh.faces, dtype=np.int64)
+    fallback = np.tile(np.asarray([[178, 190, 205, 255]], dtype=np.uint8), (len(faces), 1))
+    visual = getattr(mesh, "visual", None)
+    if visual is None:
+        return fallback
+
+    uv = getattr(visual, "uv", None)
+    material = getattr(visual, "material", None)
+    texture = None
+    if material is not None:
+        texture = getattr(material, "baseColorTexture", None) or getattr(material, "image", None)
+    if uv is not None and texture is not None:
+        try:
+            tex = np.asarray(texture.convert("RGBA"), dtype=np.float32)
+            uv_array = np.asarray(uv, dtype=np.float32)
+            if uv_array.ndim == 2 and uv_array.shape[0] >= int(faces.max()) + 1:
+                face_uv = uv_array[faces].mean(axis=1)
+                face_uv = np.clip(face_uv, 0.0, 1.0)
+                height, width = tex.shape[:2]
+                x = np.rint(face_uv[:, 0] * (width - 1)).astype(np.int64)
+                y = np.rint((1.0 - face_uv[:, 1]) * (height - 1)).astype(np.int64)
+                colors = tex[y, x]
+                base_factor = getattr(material, "baseColorFactor", None)
+                if base_factor is not None:
+                    factor = np.asarray(base_factor, dtype=np.float32).reshape(-1)
+                    if factor.size >= 3:
+                        colors[:, :3] *= factor[:3]
+                    if factor.size >= 4:
+                        colors[:, 3] *= factor[3]
+                return np.clip(colors, 0, 255).astype(np.uint8)
+        except Exception:
+            traceback.print_exc()
+
+    for attr_name in ("face_colors", "vertex_colors"):
+        try:
+            color_array = np.asarray(getattr(visual, attr_name))
+        except Exception:
+            continue
+        if color_array.ndim != 2 or color_array.shape[0] == 0:
+            continue
+        colors = color_array.astype(np.float32, copy=False)
+        if colors.max(initial=0.0) <= 1.0:
+            colors = colors * 255.0
+        if colors.shape[1] == 3:
+            colors = np.concatenate(
+                [colors, np.full((colors.shape[0], 1), 255.0, dtype=np.float32)],
+                axis=1,
+            )
+        if attr_name == "face_colors" and colors.shape[0] == len(faces):
+            return np.clip(colors[:, :4], 0, 255).astype(np.uint8)
+        if attr_name == "vertex_colors" and colors.shape[0] >= int(faces.max()) + 1:
+            return np.clip(colors[faces].mean(axis=1)[:, :4], 0, 255).astype(np.uint8)
+    return fallback
+
+
+def _camera_basis_for_preview(
+    *,
+    pitch_deg: float = 58.0,
+    azimuth_deg: float = 225.0,
+    camera_distance: float = 2.25,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    pitch = np.deg2rad(float(pitch_deg))
+    azimuth = np.deg2rad(float(azimuth_deg))
+    horizontal_distance = float(camera_distance) * np.sin(pitch)
+    camera = np.asarray(
+        [
+            horizontal_distance * np.sin(azimuth),
+            horizontal_distance * np.cos(azimuth),
+            float(camera_distance) * np.cos(pitch),
+        ],
+        dtype=np.float32,
+    )
+    forward = -camera
+    forward /= max(float(np.linalg.norm(forward)), 1e-8)
+    world_up = np.asarray([0.0, 0.0, 1.0], dtype=np.float32)
+    right = np.cross(forward, world_up)
+    right /= max(float(np.linalg.norm(right)), 1e-8)
+    up = np.cross(right, forward)
+    up /= max(float(np.linalg.norm(up)), 1e-8)
+    return camera, right.astype(np.float32), up.astype(np.float32), forward.astype(np.float32)
+
+
+def _render_up_direction_preview_software(
+    mesh: Any,
+    *,
+    up_dir: str,
+    face_colors: np.ndarray,
+    output_path: Path,
+    resolution: int,
+) -> None:
+    from PIL import Image, ImageDraw
+
+    reoriented_mesh, _ = reorient_mesh_to_z_up(mesh, up_dir)
+    normalized_mesh, _, _ = normalize_mesh(reoriented_mesh)
+    vertices = np.asarray(normalized_mesh.vertices, dtype=np.float32)
+    faces = np.asarray(normalized_mesh.faces, dtype=np.int64)
+    if vertices.size == 0 or faces.size == 0:
+        raise ValueError("Cannot render an empty mesh preview.")
+
+    camera, right, up, forward = _camera_basis_for_preview()
+    view_x = vertices @ right
+    view_y = vertices @ up
+    view_z = (vertices - camera) @ forward
+    xy = np.stack([view_x, view_y], axis=1)
+    xy_min = xy.min(axis=0)
+    xy_max = xy.max(axis=0)
+    extent = np.maximum(xy_max - xy_min, 1e-6)
+    scale = float(resolution) * 0.84 / float(np.max(extent))
+    center = (xy_min + xy_max) * 0.5
+    screen = np.empty((vertices.shape[0], 2), dtype=np.float32)
+    screen[:, 0] = (view_x - center[0]) * scale + float(resolution) * 0.5
+    screen[:, 1] = float(resolution) * 0.5 - (view_y - center[1]) * scale
+
+    tri = vertices[faces]
+    normals = np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])
+    normal_lengths = np.linalg.norm(normals, axis=1, keepdims=True)
+    normals = np.divide(normals, np.maximum(normal_lengths, 1e-8), out=np.zeros_like(normals))
+    light_dir = np.asarray([-0.35, -0.45, 0.82], dtype=np.float32)
+    light_dir /= np.linalg.norm(light_dir)
+    shade = 0.64 + 0.36 * np.maximum(normals @ light_dir, 0.0)
+    colors = face_colors[: len(faces)].astype(np.float32, copy=False)
+    if colors.shape[1] == 3:
+        alpha = np.ones((colors.shape[0], 1), dtype=np.float32) * 255.0
+        colors = np.concatenate([colors, alpha], axis=1)
+    rgb = np.clip(colors[:, :3] * shade[:, None], 0, 255)
+    alpha = np.clip(colors[:, 3:4] / 255.0, 0.0, 1.0)
+    background = np.asarray([248.0, 250.0, 252.0], dtype=np.float32)
+    rgb = rgb * alpha + background[None, :] * (1.0 - alpha)
+
+    image = Image.new("RGB", (int(resolution), int(resolution)), tuple(background.astype(np.uint8)))
+    draw = ImageDraw.Draw(image)
+    screen_faces = screen[faces]
+    face_depth = view_z[faces].mean(axis=1)
+    x0 = screen_faces[:, 0, 0]
+    y0 = screen_faces[:, 0, 1]
+    x1 = screen_faces[:, 1, 0]
+    y1 = screen_faces[:, 1, 1]
+    x2 = screen_faces[:, 2, 0]
+    y2 = screen_faces[:, 2, 1]
+    area = np.abs((x1 - x0) * (y2 - y0) - (x2 - x0) * (y1 - y0))
+    image_limit = float(resolution + 2)
+    valid = (
+        (screen_faces[:, :, 0].max(axis=1) >= -2.0)
+        & (screen_faces[:, :, 0].min(axis=1) <= image_limit)
+        & (screen_faces[:, :, 1].max(axis=1) >= -2.0)
+        & (screen_faces[:, :, 1].min(axis=1) <= image_limit)
+        & (area >= float(os.environ.get("UPRIGHT_PREVIEW_MIN_TRIANGLE_AREA", "0.25")))
+    )
+    if os.environ.get("UPRIGHT_PREVIEW_CULL_BACKFACES", "1").strip().lower() not in {"0", "false", "no"}:
+        valid &= (normals @ forward) < 0.03
+    valid_face_ids = np.flatnonzero(valid)
+    order = valid_face_ids[np.argsort(face_depth[valid_face_ids])[::-1]]
+    for face_id in order:
+        pts = screen_faces[face_id]
+        x0, y0 = pts[0]
+        x1, y1 = pts[1]
+        x2, y2 = pts[2]
+        fill = tuple(np.rint(rgb[face_id]).astype(np.uint8).tolist())
+        draw.polygon(
+            [(float(x0), float(y0)), (float(x1), float(y1)), (float(x2), float(y2))],
+            fill=fill,
+        )
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    image.save(output_path)
+
+
+def _render_up_direction_previews_software(
+    *,
+    mesh_path: Path,
+    mesh: Any,
+    output_dir: Path,
+) -> list[tuple[str, str]]:
+    resolution = int(os.environ.get("UPRIGHT_PREVIEW_RESOLUTION", "288"))
+    output_dir.mkdir(parents=True, exist_ok=True)
+    face_colors = _preview_face_colors(mesh)
+    gallery_items: list[tuple[str, str]] = []
+    for up_dir in UP_DIR_CHOICES:
+        output_path = output_dir / f"up_{_up_dir_slug(up_dir)}.png"
+        _render_up_direction_preview_software(
+            mesh,
+            up_dir=up_dir,
+            face_colors=face_colors,
+            output_path=output_path,
+            resolution=resolution,
+        )
+        gallery_items.append((str(output_path), f"{up_dir} up"))
+    return gallery_items
+
+
 def _render_up_direction_preview_image(
     mesh: Any,
     *,
@@ -2479,9 +2670,20 @@ def _render_up_direction_previews(
 ) -> list[tuple[str, str]]:
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     preview_dir = OUTPUT_ROOT / "up_direction_previews" / f"{mesh_path.stem}_{timestamp}"
+    preview_renderer = os.environ.get("UPRIGHT_PREVIEW_RENDERER", "software").strip().lower()
+    if preview_renderer == "blender":
+        try:
+            return _render_up_direction_previews_with_blender(
+                mesh_path=mesh_path,
+                output_dir=preview_dir,
+            )
+        except Exception:
+            traceback.print_exc()
+
     try:
-        return _render_up_direction_previews_with_blender(
+        return _render_up_direction_previews_software(
             mesh_path=mesh_path,
+            mesh=mesh,
             output_dir=preview_dir,
         )
     except Exception:

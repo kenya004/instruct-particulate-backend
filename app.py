@@ -3150,6 +3150,30 @@ def _zip_directory(directory: Path) -> Path:
     return zip_path
 
 
+def _to_cpu_payload(value: Any) -> Any:
+    if isinstance(value, torch.Tensor):
+        return value.detach().cpu()
+    if isinstance(value, dict):
+        return {key: _to_cpu_payload(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_to_cpu_payload(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_to_cpu_payload(item) for item in value)
+    return value
+
+
+def _to_device_payload(value: Any, device: torch.device) -> Any:
+    if isinstance(value, torch.Tensor):
+        return value.to(device)
+    if isinstance(value, dict):
+        return {key: _to_device_payload(item, device) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_to_device_payload(item, device) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_to_device_payload(item, device) for item in value)
+    return value
+
+
 def _ensure_instruct_checkpoint(checkpoint_path: Path) -> Path:
     if checkpoint_path.exists():
         return checkpoint_path
@@ -3242,7 +3266,7 @@ def _prefetch_startup_assets(config: dict[str, Any]) -> None:
 def _spaces_gpu(fn):
     if spaces is None:
         return fn
-    duration = min(int(os.environ.get("SPACES_GPU_DURATION", "120")), 120)
+    duration = max(1, min(int(os.environ.get("SPACES_GPU_DURATION", "10")), 10))
     return spaces.GPU(duration=duration)(fn)
 
 
@@ -3531,7 +3555,7 @@ class InstructParticulateApp:
         finally:
             torch.cuda.empty_cache()
 
-    def predict(
+    def predict_segmentation_payload(
         self,
         mesh_path_value: Any,
         kinematic_tree_json: str,
@@ -3547,14 +3571,10 @@ class InstructParticulateApp:
     ):
         mesh_path = _extract_gradio_path(mesh_path_value)
         if mesh_path is None:
-            yield None, None, None, None, None, "Upload a mesh first.", gr.update(interactive=False)
+            yield None, "Upload a mesh first.", gr.update(interactive=False)
             return
         if not mesh_path.exists():
             yield (
-                None,
-                None,
-                None,
-                None,
                 None,
                 f"Mesh file does not exist: {mesh_path}",
                 gr.update(interactive=False),
@@ -3563,16 +3583,11 @@ class InstructParticulateApp:
         if not up_dir:
             yield (
                 None,
-                None,
-                None,
-                None,
-                None,
                 "Select the upright orientation image before running inference.",
                 gr.update(interactive=False),
             )
             return
 
-        early_visualization_path: Path | None = None
         try:
             link_names, joint_specs = parse_kinematic_tree(kinematic_tree_json)
             point_prompt_arrays = _parse_point_prompt_arrays(
@@ -3585,10 +3600,6 @@ class InstructParticulateApp:
             )
             if duplicate_prompt_warning is not None:
                 yield (
-                    None,
-                    None,
-                    None,
-                    None,
                     None,
                     duplicate_prompt_warning,
                     gr.update(interactive=False),
@@ -3684,51 +3695,161 @@ class InstructParticulateApp:
                 batch["query_point_normals"][0],
                 dtype=np.float32,
             )
-            links_for_query_visualization = [
-                {"link_id": int(link_id), "name": str(link_name)}
-                for link_id, link_name in enumerate(link_names)
-            ]
-            visualization_link_point_prompts_world, visualization_link_point_prompt_ids = (
-                _resolve_visualized_batch_link_point_prompts(
-                    args=args,
-                    batch=batch,
-                    links=links_for_query_visualization,
-                    center=mesh_geometry.center,
-                    scale=mesh_geometry.scale,
-                )
-            )
-            early_visualization_path = save_predicted_point_query_rest_visualization(
-                output_dir,
-                query_points=_denormalize_points(
-                    query_points,
-                    center=mesh_geometry.center,
-                    scale=mesh_geometry.scale,
-                ),
-                query_normals=query_normals,
-                predicted_part_ids=point_part_ids,
-                link_point_prompts=visualization_link_point_prompts_world,
-                link_point_prompt_ids=visualization_link_point_prompt_ids,
-                links=links_for_query_visualization,
-            )
+            payload = {
+                "args": {
+                    "num_query_points": int(args.num_query_points),
+                    "num_query_points_per_face_for_seg": args.num_query_points_per_face_for_seg,
+                    "query_batch_size": int(args.query_batch_size),
+                    "animation_frames": int(args.animation_frames),
+                    "strict_face_postprocess": bool(args.strict_face_postprocess),
+                    "enforce_connectivity_per_part": bool(args.enforce_connectivity_per_part),
+                    "joint_decoding_confidence_temperature": float(
+                        args.joint_decoding_confidence_temperature
+                    ),
+                },
+                "mesh_path": str(mesh_path),
+                "up_dir": str(canonical_up),
+                "output_dir": str(output_dir),
+                "batch": _to_cpu_payload(batch),
+                "query_face_indices": np.asarray(query_face_indices, dtype=np.int64),
+                "link_names": [str(link_name) for link_name in link_names],
+                "joint_specs": [
+                    (int(parent), int(child), str(joint_type))
+                    for parent, child, joint_type in joint_specs
+                ],
+                "point_part_probabilities": point_part_probabilities,
+                "point_part_ids": point_part_ids,
+                "query_points": query_points,
+                "query_normals": query_normals,
+                "segmentation_num_query_points": int(segmentation_num_query_points),
+            }
             yield (
+                payload,
+                "Point predictions ready. Running CPU face postprocessing...",
+                gr.update(interactive=False),
+            )
+        finally:
+            torch.cuda.empty_cache()
+
+    def postprocess_segmentation_payload(self, payload: dict[str, Any] | None):
+        if not payload:
+            return (
                 None,
-                None,
-                str(early_visualization_path),
-                None,
-                None,
-                "Point query visualization ready. Running face postprocessing and articulation export...",
+                gr.update(),
+                gr.update(),
                 gr.update(interactive=False),
             )
 
-            face_part_ids, face_part_ids_unrefined = _decode_face_part_ids(
-                mesh_geometry.normalized_mesh,
-                point_part_ids=point_part_ids,
-                point_part_probabilities=point_part_probabilities,
-                query_face_indices=query_face_indices,
-                input_part_ids=np.arange(len(link_names), dtype=np.int32),
-                strict=bool(args.strict_face_postprocess),
-                enforce_connectivity_per_part=bool(args.enforce_connectivity_per_part),
+        args_payload = dict(payload["args"])
+        mesh_path = Path(str(payload["mesh_path"]))
+        canonical_up = str(payload["up_dir"])
+        output_dir = Path(str(payload["output_dir"]))
+        args = _make_inference_args(
+            output_dir=output_dir,
+            num_query_points=int(args_payload["num_query_points"]),
+            num_query_points_per_face_for_seg=args_payload[
+                "num_query_points_per_face_for_seg"
+            ],
+            query_batch_size=int(args_payload["query_batch_size"]),
+            animation_frames=int(args_payload["animation_frames"]),
+            strict_face_postprocess=bool(args_payload["strict_face_postprocess"]),
+            enforce_connectivity_per_part=bool(
+                args_payload["enforce_connectivity_per_part"]
+            ),
+            joint_decoding_confidence_temperature=float(
+                args_payload["joint_decoding_confidence_temperature"]
+            ),
+        )
+        mesh_geometry = self._prepare_geometry(mesh_path, canonical_up)
+        link_names = [str(link_name) for link_name in payload["link_names"]]
+        links_for_query_visualization = [
+            {"link_id": int(link_id), "name": str(link_name)}
+            for link_id, link_name in enumerate(link_names)
+        ]
+        batch = payload["batch"]
+        visualization_link_point_prompts_world, visualization_link_point_prompt_ids = (
+            _resolve_visualized_batch_link_point_prompts(
+                args=args,
+                batch=batch,
+                links=links_for_query_visualization,
+                center=mesh_geometry.center,
+                scale=mesh_geometry.scale,
             )
+        )
+        query_points = np.asarray(payload["query_points"], dtype=np.float32)
+        query_normals = np.asarray(payload["query_normals"], dtype=np.float32)
+        point_part_ids = np.asarray(payload["point_part_ids"], dtype=np.int32)
+        query_face_indices = np.asarray(payload["query_face_indices"], dtype=np.int64)
+        early_visualization_path = save_predicted_point_query_rest_visualization(
+            output_dir,
+            query_points=_denormalize_points(
+                query_points,
+                center=mesh_geometry.center,
+                scale=mesh_geometry.scale,
+            ),
+            query_normals=query_normals,
+            predicted_part_ids=point_part_ids,
+            link_point_prompts=visualization_link_point_prompts_world,
+            link_point_prompt_ids=visualization_link_point_prompt_ids,
+            links=links_for_query_visualization,
+        )
+        face_part_ids, face_part_ids_unrefined = _decode_face_part_ids(
+            mesh_geometry.normalized_mesh,
+            point_part_ids=point_part_ids,
+            point_part_probabilities=np.asarray(
+                payload["point_part_probabilities"],
+                dtype=np.float32,
+            ),
+            query_face_indices=query_face_indices,
+            input_part_ids=np.arange(len(link_names), dtype=np.int32),
+            strict=bool(args.strict_face_postprocess),
+            enforce_connectivity_per_part=bool(args.enforce_connectivity_per_part),
+        )
+        motion_request = dict(payload)
+        motion_request.pop("point_part_probabilities", None)
+        motion_request["face_part_ids"] = np.asarray(face_part_ids, dtype=np.int32)
+        motion_request["face_part_ids_unrefined"] = np.asarray(
+            face_part_ids_unrefined,
+            dtype=np.int32,
+        )
+        motion_request["visualization_path"] = str(early_visualization_path)
+        return (
+            motion_request,
+            str(early_visualization_path),
+            "Point query visualization ready. Running articulation prediction on GPU...",
+            gr.update(interactive=False),
+        )
+
+    def predict_motion_payload(self, payload: dict[str, Any] | None):
+        if not payload:
+            yield None, gr.update(), gr.update(interactive=False)
+            return
+
+        try:
+            args_payload = dict(payload["args"])
+            mesh_path = Path(str(payload["mesh_path"]))
+            canonical_up = str(payload["up_dir"])
+            output_dir = Path(str(payload["output_dir"]))
+            args = _make_inference_args(
+                output_dir=output_dir,
+                num_query_points=int(args_payload["num_query_points"]),
+                num_query_points_per_face_for_seg=args_payload[
+                    "num_query_points_per_face_for_seg"
+                ],
+                query_batch_size=int(args_payload["query_batch_size"]),
+                animation_frames=int(args_payload["animation_frames"]),
+                strict_face_postprocess=bool(args_payload["strict_face_postprocess"]),
+                enforce_connectivity_per_part=bool(
+                    args_payload["enforce_connectivity_per_part"]
+                ),
+                joint_decoding_confidence_temperature=float(
+                    args_payload["joint_decoding_confidence_temperature"]
+                ),
+            )
+            model, device = self._ensure_model_loaded()
+            mesh_geometry = self._prepare_geometry(mesh_path, canonical_up)
+            batch = _to_device_payload(payload["batch"], device)
+            face_part_ids = np.asarray(payload["face_part_ids"], dtype=np.int32)
             motion_artifacts = _compute_motion_prediction_artifacts(
                 args,
                 model=model,
@@ -3736,58 +3857,113 @@ class InstructParticulateApp:
                 normalized_mesh=mesh_geometry.normalized_mesh,
                 face_part_ids=face_part_ids,
                 joint_refit_num_query_points=int(args.num_query_points),
-                num_links=len(link_names),
+                num_links=len(payload["link_names"]),
                 center=mesh_geometry.center,
                 scale=mesh_geometry.scale,
             )
             prediction = {
-                "query_points": query_points,
-                "query_normals": query_normals,
-                "point_part_ids": point_part_ids,
+                "query_points": np.asarray(payload["query_points"], dtype=np.float32),
+                "query_normals": np.asarray(payload["query_normals"], dtype=np.float32),
+                "point_part_ids": np.asarray(payload["point_part_ids"], dtype=np.int32),
                 "face_part_ids": face_part_ids,
-                "face_part_ids_unrefined": face_part_ids_unrefined,
+                "face_part_ids_unrefined": np.asarray(
+                    payload["face_part_ids_unrefined"],
+                    dtype=np.int32,
+                ),
                 **motion_artifacts,
             }
-            self._write_outputs(
-                args=args,
-                mesh_path=mesh_path,
-                up_dir=canonical_up,
-                output_dir=output_dir,
-                mesh_geometry=mesh_geometry,
-                batch=batch,
-                query_face_indices=query_face_indices,
-                link_names=link_names,
-                joint_specs=joint_specs,
-                prediction=prediction,
-                segmentation_num_query_points=segmentation_num_query_points,
-                visualization_path=early_visualization_path,
-            )
-            zip_path = _zip_directory(output_dir)
+            output_payload = {
+                "args": args_payload,
+                "mesh_path": str(mesh_path),
+                "up_dir": str(canonical_up),
+                "output_dir": str(output_dir),
+                "query_face_indices": np.asarray(
+                    payload["query_face_indices"],
+                    dtype=np.int64,
+                ),
+                "link_names": [str(link_name) for link_name in payload["link_names"]],
+                "joint_specs": [
+                    (int(parent), int(child), str(joint_type))
+                    for parent, child, joint_type in payload["joint_specs"]
+                ],
+                "prediction": _to_cpu_payload(prediction),
+                "segmentation_num_query_points": int(
+                    payload["segmentation_num_query_points"]
+                ),
+                "visualization_path": str(payload["visualization_path"]),
+            }
             yield (
-                str(output_dir / "animated_textured.glb"),
-                str(output_dir / "mesh_parts_with_axes.glb"),
-                gr.update(),
-                str(zip_path),
-                str(output_dir),
-                f"Success using input up direction {canonical_up}. Wrote outputs to {output_dir}",
-                gr.update(interactive=True),
-            )
-        except Exception as exc:
-            traceback.print_exc()
-            yield (
-                None,
-                None,
-                gr.update()
-                if early_visualization_path is not None
-                and early_visualization_path.exists()
-                else None,
-                None,
-                None,
-                f"Error: {exc}",
+                output_payload,
+                "Articulation prediction ready. Writing output files on CPU...",
                 gr.update(interactive=False),
             )
         finally:
             torch.cuda.empty_cache()
+
+    def finish_predict_payload(self, payload: dict[str, Any] | None):
+        if not payload:
+            return (
+                gr.update(),
+                gr.update(),
+                gr.update(),
+                gr.update(),
+                gr.update(),
+                gr.update(),
+                gr.update(interactive=False),
+            )
+
+        args_payload = dict(payload["args"])
+        mesh_path = Path(str(payload["mesh_path"]))
+        canonical_up = str(payload["up_dir"])
+        output_dir = Path(str(payload["output_dir"]))
+        visualization_path = Path(str(payload["visualization_path"]))
+        args = _make_inference_args(
+            output_dir=output_dir,
+            num_query_points=int(args_payload["num_query_points"]),
+            num_query_points_per_face_for_seg=args_payload[
+                "num_query_points_per_face_for_seg"
+            ],
+            query_batch_size=int(args_payload["query_batch_size"]),
+            animation_frames=int(args_payload["animation_frames"]),
+            strict_face_postprocess=bool(args_payload["strict_face_postprocess"]),
+            enforce_connectivity_per_part=bool(
+                args_payload["enforce_connectivity_per_part"]
+            ),
+            joint_decoding_confidence_temperature=float(
+                args_payload["joint_decoding_confidence_temperature"]
+            ),
+        )
+        mesh_geometry = self._prepare_geometry(mesh_path, canonical_up)
+        self._write_outputs(
+            args=args,
+            mesh_path=mesh_path,
+            up_dir=canonical_up,
+            output_dir=output_dir,
+            mesh_geometry=mesh_geometry,
+            batch={},
+            query_face_indices=np.asarray(
+                payload["query_face_indices"],
+                dtype=np.int64,
+            ),
+            link_names=[str(link_name) for link_name in payload["link_names"]],
+            joint_specs=[
+                (int(parent), int(child), str(joint_type))
+                for parent, child, joint_type in payload["joint_specs"]
+            ],
+            prediction=payload["prediction"],
+            segmentation_num_query_points=int(payload["segmentation_num_query_points"]),
+            visualization_path=visualization_path,
+        )
+        zip_path = _zip_directory(output_dir)
+        return (
+            str(output_dir / "animated_textured.glb"),
+            str(output_dir / "mesh_parts_with_axes.glb"),
+            gr.update(),
+            str(zip_path),
+            str(output_dir),
+            f"Success using input up direction {canonical_up}. Wrote outputs to {output_dir}",
+            gr.update(interactive=True),
+        )
 
     def _prepare_geometry(self, mesh_path: Path, up_dir: str):
         from infer import _prepare_mesh_geometry
@@ -4079,7 +4255,7 @@ def run_predict_on_gpu(
     enforce_connectivity_per_part: bool,
     joint_decoding_confidence_temperature: float,
 ):
-    yield from _get_active_app().predict(
+    yield from _get_active_app().predict_segmentation_payload(
         mesh_path_value,
         kinematic_tree_json,
         point_prompt_json,
@@ -4094,8 +4270,22 @@ def run_predict_on_gpu(
     )
 
 
+def postprocess_segmentation_on_cpu(payload: dict[str, Any] | None):
+    return _get_active_app().postprocess_segmentation_payload(payload)
+
+
+@_spaces_gpu
+def run_motion_on_gpu(payload: dict[str, Any] | None):
+    yield from _get_active_app().predict_motion_payload(payload)
+
+
+def finish_predict_on_cpu(payload: dict[str, Any] | None):
+    return _get_active_app().finish_predict_payload(payload)
+
+
 def prepare_inference_ui():
     return (
+        None,
         None,
         gr.update(interactive=False),
         gr.update(value=None, interactive=False),
@@ -4203,6 +4393,7 @@ def create_gradio_app(app: InstructParticulateApp) -> gr.Blocks:
             elem_classes=["kinematic-json-sync"],
         )
         latest_output_dir = gr.State(None)
+        inference_payload = gr.State(None)
 
         with gr.Row(equal_height=True, elem_classes=["demo-row", "demo-top-row"]):
             with gr.Column(scale=1, min_width=300, elem_classes=["demo-panel", "mesh-panel"]):
@@ -4415,6 +4606,7 @@ def create_gradio_app(app: InstructParticulateApp) -> gr.Blocks:
             fn=prepare_inference_ui,
             inputs=None,
             outputs=[
+                inference_payload,
                 latest_output_dir,
                 export_urdf_button,
                 urdf_zip,
@@ -4422,7 +4614,7 @@ def create_gradio_app(app: InstructParticulateApp) -> gr.Blocks:
             ],
             queue=False,
         )
-        run_event.then(
+        gpu_event = run_event.then(
             fn=run_predict_on_gpu,
             inputs=[
                 input_mesh,
@@ -4437,6 +4629,34 @@ def create_gradio_app(app: InstructParticulateApp) -> gr.Blocks:
                 connectivity,
                 confidence_temperature,
             ],
+            outputs=[
+                inference_payload,
+                status,
+                export_urdf_button,
+            ],
+        )
+        postprocess_event = gpu_event.then(
+            fn=postprocess_segmentation_on_cpu,
+            inputs=[inference_payload],
+            outputs=[
+                inference_payload,
+                query_visualization,
+                status,
+                export_urdf_button,
+            ],
+        )
+        motion_event = postprocess_event.then(
+            fn=run_motion_on_gpu,
+            inputs=[inference_payload],
+            outputs=[
+                inference_payload,
+                status,
+                export_urdf_button,
+            ],
+        )
+        motion_event.then(
+            fn=finish_predict_on_cpu,
+            inputs=[inference_payload],
             outputs=[
                 animated_model,
                 prediction_model,

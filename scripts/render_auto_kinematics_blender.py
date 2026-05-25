@@ -9,6 +9,15 @@ import sys
 from pathlib import Path
 
 import numpy as np
+
+# Blender 3.4's bundled glTF importer still references NumPy aliases removed in
+# newer NumPy builds. Install them before bpy imports or glTF loading can run.
+np.bool = bool
+np.int = int
+np.float = float
+np.complex = complex
+np.object = object
+
 try:
     import bpy
     from mathutils import Matrix, Vector

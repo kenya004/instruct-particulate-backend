@@ -5,6 +5,7 @@ import json
 import os
 import shutil
 import tempfile
+import threading
 import traceback
 import zipfile
 from datetime import datetime
@@ -15,6 +16,11 @@ import gradio as gr
 import numpy as np
 import torch
 import torch.nn.functional as F
+
+try:
+    import spaces
+except ImportError:
+    spaces = None
 
 from infer import (
     _base_metadata,
@@ -2573,6 +2579,12 @@ def _ensure_instruct_checkpoint(checkpoint_path: Path) -> Path:
     return checkpoint_path
 
 
+def _spaces_gpu(fn):
+    if spaces is None:
+        return fn
+    return spaces.GPU(duration=1800)(fn)
+
+
 class InstructParticulateApp:
     def __init__(
         self,
@@ -2587,23 +2599,35 @@ class InstructParticulateApp:
         self.output_root.mkdir(parents=True, exist_ok=True)
 
         self.checkpoint_path = _ensure_instruct_checkpoint(self.checkpoint_path)
-        if not torch.cuda.is_available():
-            raise RuntimeError("CUDA is required for this demo but is not available.")
-        self.device = torch.device("cuda")
-
-        config = load_run_config(self.run_dir)
-        configure_runtime_environment(config)
+        self.config = load_run_config(self.run_dir)
+        configure_runtime_environment(self.config)
         self.num_shape_points, self.default_num_query_points, self.sharp_point_ratio = (
-            resolve_inference_sampling_config(config)
+            resolve_inference_sampling_config(self.config)
         )
-        self.model = Particulate2ArticulationModel(**config["model"])
-        load_model_checkpoint_for_inference(
-            self.model,
-            self.checkpoint_path,
-            device=self.device,
-        )
-        if self.model.encoder.use_text_conditioning:
-            self.model.encoder.compute_link_text_embeddings_on_the_fly = True
+        self.device: torch.device | None = None
+        self.model: Particulate2ArticulationModel | None = None
+        self._model_lock = threading.Lock()
+
+    def _ensure_model_loaded(self) -> tuple[Particulate2ArticulationModel, torch.device]:
+        if self.model is not None and self.device is not None:
+            return self.model, self.device
+        with self._model_lock:
+            if self.model is not None and self.device is not None:
+                return self.model, self.device
+            if not torch.cuda.is_available():
+                raise RuntimeError("CUDA is required for this demo but is not available.")
+            device = torch.device("cuda")
+            model = Particulate2ArticulationModel(**self.config["model"])
+            load_model_checkpoint_for_inference(
+                model,
+                self.checkpoint_path,
+                device=device,
+            )
+            if model.encoder.use_text_conditioning:
+                model.encoder.compute_link_text_embeddings_on_the_fly = True
+            self.model = model
+            self.device = device
+            return model, device
 
     def register_mesh(
         self,
@@ -2822,6 +2846,7 @@ class InstructParticulateApp:
         finally:
             torch.cuda.empty_cache()
 
+    @_spaces_gpu
     def predict(
         self,
         mesh_path_value: Any,
@@ -2889,6 +2914,7 @@ class InstructParticulateApp:
                 ),
             )
 
+            model, device = self._ensure_model_loaded()
             mesh_geometry = self._prepare_geometry(mesh_path, canonical_up)
             segmentation_num_query_points = self._segmentation_num_query_points(
                 args,
@@ -2903,7 +2929,7 @@ class InstructParticulateApp:
                     sharp_point_ratio=self.sharp_point_ratio,
                     link_names=link_names,
                     joint_specs=joint_specs,
-                    device=self.device,
+                    device=device,
                 )
             else:
                 raw_prompt_points, raw_prompt_normals, has_point_prompt = point_prompt_arrays
@@ -2920,18 +2946,18 @@ class InstructParticulateApp:
                     sharp_point_ratio=self.sharp_point_ratio,
                     link_names=link_names,
                     joint_specs=joint_specs,
-                    device=self.device,
+                    device=device,
                     link_point_prompts=torch.from_numpy(normalized_prompt_points).float(),
                     link_point_prompt_normals=torch.from_numpy(normalized_prompt_normals).float(),
                     require_unique_link_names=False,
                 )
                 no_prompt_mask = torch.from_numpy(~has_point_prompt).bool().unsqueeze(0).to(
-                    self.device
+                    device
                 )
                 batch["link_point_prompt_dropout_eligible"] = no_prompt_mask
 
             output = run_batched_model_inference(
-                self.model,
+                model,
                 query_batch_size=int(args.query_batch_size),
                 no_point_prompt_for_unique_text=bool(args.no_point_prompt),
                 decode_joint_parameters=False,
@@ -3003,7 +3029,7 @@ class InstructParticulateApp:
             )
             motion_artifacts = _compute_motion_prediction_artifacts(
                 args,
-                model=self.model,
+                model=model,
                 batch=batch,
                 normalized_mesh=mesh_geometry.normalized_mesh,
                 face_part_ids=face_part_ids,

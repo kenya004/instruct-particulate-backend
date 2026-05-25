@@ -191,8 +191,24 @@ DEMO_CSS = """
 .inference-params-panel {
   flex: 0 0 auto !important;
 }
+.inference-params-static {
+  border: 1px solid var(--demo-border) !important;
+  border-radius: 6px !important;
+  background: transparent !important;
+  padding: 8px 10px !important;
+}
 .inference-params-panel .form {
   gap: 6px !important;
+}
+.inference-params-title,
+.inference-params-title > div,
+.inference-params-title p {
+  margin: 0 0 6px !important;
+  padding: 0 !important;
+  color: var(--demo-text) !important;
+  font-size: 14px !important;
+  font-weight: 600 !important;
+  line-height: 1.25 !important;
 }
 .toggle-switch input[type="checkbox"] {
   appearance: none !important;
@@ -4130,7 +4146,11 @@ def create_gradio_app(app: InstructParticulateApp) -> gr.Blocks:
                 animation_frames = gr.State(50)
                 connectivity = gr.State(True)
                 confidence_temperature = gr.State(1.0)
-                with gr.Accordion("Inference Parameters", open=True, elem_classes=["inference-params-panel"]):
+                with gr.Group(elem_classes=["inference-params-panel", "inference-params-static"]):
+                    gr.Markdown(
+                        "**Inference Parameters**",
+                        elem_classes=["inference-params-title"],
+                    )
                     strict = gr.Checkbox(
                         label="Connected Component Postprocessing",
                         value=True,

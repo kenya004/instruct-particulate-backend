@@ -191,6 +191,21 @@ DEMO_CSS = """
   display: flex;
   flex-direction: column;
   gap: 8px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.prompt-panel #point-prompt-picker {
+  flex: 0 0 420px !important;
+  height: 420px !important;
+  max-height: 420px !important;
+}
+.prompt-panel .inference-params-panel {
+  flex: 0 0 auto !important;
+  max-height: 250px !important;
+  overflow-y: auto !important;
+  display: block !important;
+  opacity: 1 !important;
+  visibility: visible !important;
 }
 .prompt-panel .prompt-run-row {
   flex: 0 0 auto;

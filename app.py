@@ -1330,9 +1330,10 @@ KINEMATIC_TREE_EDITOR_JS = r"""
     function defaultNodePosition(index) {
       const width = canvas.clientWidth || 320;
       const height = canvas.clientHeight || 380;
+      const { width: nodeWidth, height: nodeHeight } = currentNodeSize();
       const columns = width >= 680 ? 4 : width >= 500 ? 3 : width >= 340 ? 2 : 1;
-      const usableX = Math.max(0, width - NODE_WIDTH - 48);
-      const usableY = Math.max(0, height - NODE_HEIGHT - 48);
+      const usableX = Math.max(0, width - nodeWidth - 48);
+      const usableY = Math.max(0, height - nodeHeight - 48);
       const columnGap = columns <= 1 ? 0 : usableX / Math.max(1, columns - 1);
       const rowCount = Math.max(1, Math.ceil((index + 1) / columns));
       const rowGap = rowCount <= 1 ? 0 : Math.min(118, usableY / Math.max(1, rowCount - 1));
@@ -1342,13 +1343,36 @@ KINEMATIC_TREE_EDITOR_JS = r"""
       };
     }
 
+    function currentNodeSize() {
+      const node = nodeLayer.querySelector(".kin-node");
+      if (!node) {
+        return { width: NODE_WIDTH, height: NODE_HEIGHT };
+      }
+      const rect = node.getBoundingClientRect();
+      return {
+        width: Math.max(1, rect.width || NODE_WIDTH),
+        height: Math.max(1, rect.height || NODE_HEIGHT)
+      };
+    }
+
+    function clampNodePositions() {
+      const { width: nodeWidth, height: nodeHeight } = currentNodeSize();
+      const maxX = Math.max(0, (canvas.clientWidth || 0) - nodeWidth - 10);
+      const maxY = Math.max(0, (canvas.clientHeight || 0) - nodeHeight - 10);
+      state.links.forEach((link) => {
+        link.x = Math.min(maxX, Math.max(0, Number(link.x) || 0));
+        link.y = Math.min(maxY, Math.max(0, Number(link.y) || 0));
+      });
+    }
+
     function layoutTreePositions(rawLinks, joints) {
       const width = Math.max(canvas.clientWidth || 640, NODE_WIDTH + 72);
       const height = Math.max(canvas.clientHeight || 420, NODE_HEIGHT + 72);
       const marginX = 28;
       const marginY = 28;
-      const usableX = Math.max(0, width - NODE_WIDTH - marginX * 2);
-      const usableY = Math.max(0, height - NODE_HEIGHT - marginY * 2);
+      const { width: nodeWidth, height: nodeHeight } = currentNodeSize();
+      const usableX = Math.max(0, width - nodeWidth - marginX * 2);
+      const usableY = Math.max(0, height - nodeHeight - marginY * 2);
       const linkCount = rawLinks.length;
       const childrenByParent = new Map();
       const childIds = new Set();
@@ -1419,6 +1443,45 @@ KINEMATIC_TREE_EDITOR_JS = r"""
       return positions;
     }
 
+    function relayoutForCurrentCanvas() {
+      if (state.dragging) {
+        return;
+      }
+      const tree = exportTree();
+      const positions = layoutTreePositions(tree.links, state.joints);
+      state.links.forEach((link, index) => {
+        const position = positions[index] || defaultNodePosition(index);
+        link.x = position.x;
+        link.y = position.y;
+      });
+      clampNodePositions();
+      render();
+    }
+
+    let relayoutAnimationFrame = null;
+    let lastCanvasSize = { width: 0, height: 0 };
+    function scheduleResponsiveRelayout() {
+      if (relayoutAnimationFrame !== null) {
+        window.cancelAnimationFrame(relayoutAnimationFrame);
+      }
+      relayoutAnimationFrame = window.requestAnimationFrame(() => {
+        relayoutAnimationFrame = null;
+        const width = canvas.clientWidth || 0;
+        const height = canvas.clientHeight || 0;
+        if (width <= 0 || height <= 0) {
+          return;
+        }
+        const changed =
+          Math.abs(width - lastCanvasSize.width) > 2 ||
+          Math.abs(height - lastCanvasSize.height) > 2;
+        lastCanvasSize = { width, height };
+        if (changed) {
+          relayoutForCurrentCanvas();
+          renderPromptMesh();
+        }
+      });
+    }
+
     function loadTree(tree, options = {}) {
       const links = Array.isArray(tree.links) ? tree.links : [];
       const joints = Array.isArray(tree.joints)
@@ -1448,6 +1511,10 @@ KINEMATIC_TREE_EDITOR_JS = r"""
       if (options.syncPrompts !== false) {
         syncPrompts();
       }
+      lastCanvasSize = {
+        width: canvas.clientWidth || 0,
+        height: canvas.clientHeight || 0
+      };
       render();
     }
 
@@ -1880,7 +1947,8 @@ KINEMATIC_TREE_EDITOR_JS = r"""
     }
 
     function nodeCenter(link) {
-      return { x: link.x + NODE_WIDTH * 0.5, y: link.y + NODE_HEIGHT * 0.5 };
+      const { width: nodeWidth, height: nodeHeight } = currentNodeSize();
+      return { x: link.x + nodeWidth * 0.5, y: link.y + nodeHeight * 0.5 };
     }
 
     function getLink(id) {
@@ -2082,8 +2150,9 @@ KINEMATIC_TREE_EDITOR_JS = r"""
           if (Math.abs(dx) + Math.abs(dy) > 3) {
             state.dragging.moved = true;
           }
-          const maxX = Math.max(0, canvas.clientWidth - NODE_WIDTH - 10);
-          const maxY = Math.max(0, canvas.clientHeight - NODE_HEIGHT - 10);
+          const { width: nodeWidth, height: nodeHeight } = currentNodeSize();
+          const maxX = Math.max(0, canvas.clientWidth - nodeWidth - 10);
+          const maxY = Math.max(0, canvas.clientHeight - nodeHeight - 10);
           link.x = Math.min(maxX, Math.max(0, state.dragging.nodeX + dx));
           link.y = Math.min(maxY, Math.max(0, state.dragging.nodeY + dy));
           node.style.left = `${link.x}px`;
@@ -2343,10 +2412,11 @@ KINEMATIC_TREE_EDITOR_JS = r"""
         render();
       }
     });
-    window.addEventListener("resize", () => {
-      render();
-      renderPromptMesh();
-    });
+    window.addEventListener("resize", scheduleResponsiveRelayout);
+    if (typeof ResizeObserver !== "undefined") {
+      const resizeObserver = new ResizeObserver(scheduleResponsiveRelayout);
+      resizeObserver.observe(canvas);
+    }
     window.setInterval(() => {
       loadPromptMeshFromBox();
       loadExternalTreeFromBox();

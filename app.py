@@ -134,6 +134,8 @@ DEMO_CSS = """
   --demo-chip-bg: rgba(255, 255, 255, 0.88);
   --demo-chip-text: #111827;
   --demo-focus: #2563eb;
+  --demo-selected: #16a34a;
+  --demo-selected-ring: rgba(22, 163, 74, 0.42);
   color-scheme: light dark;
 }
 @media (prefers-color-scheme: dark) {
@@ -146,6 +148,8 @@ DEMO_CSS = """
     --demo-chip-bg: rgba(15, 23, 42, 0.9);
     --demo-chip-text: #f8fafc;
     --demo-focus: #60a5fa;
+    --demo-selected: #22c55e;
+    --demo-selected-ring: rgba(34, 197, 94, 0.48);
   }
 }
 .demo-row {
@@ -389,14 +393,24 @@ DEMO_CSS = """
   background: var(--demo-panel-bg) !important;
   cursor: pointer;
   overflow: hidden !important;
-  transition: border-color 120ms ease, box-shadow 120ms ease;
+  transition: border-color 120ms ease, box-shadow 120ms ease, filter 120ms ease, opacity 120ms ease, transform 120ms ease;
+}
+.upright-picker-grid:has(.upright-option-image.selected) .upright-option-image:not(.selected) {
+  opacity: 0.56;
+  filter: grayscale(0.28) saturate(0.72);
 }
 .upright-option-image:hover {
   border-color: var(--demo-hover-border) !important;
 }
 .upright-option-image.selected {
-  border-color: var(--demo-focus) !important;
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.28) !important;
+  border-color: var(--demo-selected) !important;
+  border-width: 3px !important;
+  box-shadow:
+    0 0 0 4px var(--demo-selected-ring),
+    0 10px 24px rgba(15, 23, 42, 0.24) !important;
+  opacity: 1 !important;
+  filter: none !important;
+  transform: translateY(-1px);
 }
 .upright-option-image .image-container,
 .upright-option-image .image-frame,
@@ -443,6 +457,23 @@ DEMO_CSS = """
   font-weight: 600;
   line-height: 1;
   padding: 5px 7px;
+  pointer-events: none;
+}
+.upright-option-image.selected::before {
+  content: "Selected";
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  z-index: 2;
+  border: 1px solid rgba(255, 255, 255, 0.42);
+  border-radius: 999px;
+  background: var(--demo-selected);
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 6px 8px;
+  box-shadow: 0 5px 16px rgba(15, 23, 42, 0.25);
   pointer-events: none;
 }
 .outputs-panel {
@@ -611,6 +642,12 @@ DEMO_CSS = """
     left: 5px;
     font-size: 10px;
     padding: 4px 5px;
+  }
+  .upright-option-image.selected::before {
+    right: 5px;
+    bottom: 5px;
+    font-size: 10px;
+    padding: 5px 6px;
   }
   .kin-tree-toolbar,
   .prompt-picker-toolbar {

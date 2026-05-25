@@ -1,13 +1,25 @@
 ---
 title: Instruct Particulate
-emoji: 🌖
-colorFrom: purple
-colorTo: red
+colorFrom: blue
+colorTo: green
 sdk: gradio
-sdk_version: 6.14.0
-python_version: '3.12'
+sdk_version: 6.0.2
 app_file: app.py
 pinned: false
 ---
 
-Check out the configuration reference at https://huggingface.co/docs/hub/spaces-config-reference
+# Instruct Particulate Demo
+
+This repository contains a self-contained Gradio demo for the
+`FINAL-ours-final_2026-05-01T12-36-12` Instruct Particulate checkpoint.
+On Hugging Face Spaces, the large model checkpoint is downloaded at startup
+from `rayli/instruct-particulate-model`.
+
+Run:
+
+```bash
+CUDA_VISIBLE_DEVICES=0 python app.py
+```
+
+The app accepts one `.glb` or `.obj` mesh and a kinematic tree JSON. Link IDs
+must be dense integers starting at `0`; joints use `revolute` or `prismatic`.

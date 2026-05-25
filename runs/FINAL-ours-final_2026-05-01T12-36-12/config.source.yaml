@@ -1,0 +1,172 @@
+experiment:
+  name: FINAL-ours-final
+  output_root: ./runs
+  seed: 42
+  resume_from: null
+runtime:
+  hf_cache_dir: ./.cache/huggingface
+logging:
+  wandb:
+    enabled: true
+    project: instruct-particulate
+    entity: null
+    name: FINAL-ours-final
+    group: null
+    job_type: train
+    mode: online
+    resume: allow
+    tags: []
+    notes: null
+datasets:
+  shared:
+    num_shape_points: 10240
+    num_query_points: 4096
+  train:
+  - root: /scratch/u6en/ruining.u6en/data/partnet-mobility-points
+    split_file: null
+    sharp_point_ratio: 0.5
+    query_balance_ratio: 0.5
+    query_boundary_ratio: 0.2
+    query_boundary_temperature: 0.1
+    random_pose_prob: 0.5
+    dropout_individual_link_prob: 0.15
+    max_num_links: 16
+    use_augmentation: true
+    curriculum:
+    - 0.16
+    - 0.16
+  - root: /scratch/u6en/ruining.u6en/data/grscenes-100-points
+    split_file: null
+    sharp_point_ratio: 0.5
+    query_balance_ratio: 0.5
+    query_boundary_ratio: 0.2
+    query_boundary_temperature: 0.1
+    random_pose_prob: 0.5
+    dropout_individual_link_prob: 0.15
+    max_num_links: 16
+    use_augmentation: true
+    curriculum:
+    - 0.09
+    - 0.09
+  - root: /scratch/u6en/ruining.u6en/data/HY3D-part-points
+    split_file: null
+    sharp_point_ratio: 0.5
+    query_balance_ratio: 0.5
+    query_boundary_ratio: 0.2
+    query_boundary_temperature: 0.1
+    random_pose_prob: 0.0
+    dropout_individual_link_prob: 0.0
+    max_num_links: 16
+    use_augmentation: true
+    curriculum:
+    - 0.18
+    - 0.18
+  - root: /scratch/u6en/ruining.u6en/data/HY3D-synthetic-nanobanana-points
+    split_file: null
+    sharp_point_ratio: 0.5
+    query_balance_ratio: 0.5
+    query_boundary_ratio: 0.2
+    query_boundary_temperature: 0.1
+    random_pose_prob: 0.0
+    dropout_individual_link_prob: 0.15
+    max_num_links: 16
+    use_augmentation: true
+    curriculum:
+    - 0.2
+    - 0.2
+  - root: /scratch/u6en/ruining.u6en/data/ikea-points
+    split_file: null
+    sharp_point_ratio: 0.5
+    query_balance_ratio: 0.5
+    query_boundary_ratio: 0.2
+    query_boundary_temperature: 0.1
+    random_pose_prob: 0.0
+    dropout_individual_link_prob: 0.15
+    max_num_links: 16
+    use_augmentation: true
+    curriculum:
+    - 0.04
+    - 0.04
+  - root: /scratch/u6en/ruining.u6en/data/articraft-points
+    split_file: /scratch/u6en/ruining.u6en/data/train_r4_r5_or_unrated_split.json
+    sharp_point_ratio: 0.5
+    query_balance_ratio: 0.5
+    query_boundary_ratio: 0.2
+    query_boundary_temperature: 0.1
+    random_pose_prob: 0.5
+    dropout_individual_link_prob: 0.15
+    max_num_links: 16
+    use_augmentation: true
+    curriculum:
+    - 0.33
+    - 0.33
+model:
+  segmentation_decode_type: mlp
+  joint_decode_type: overparam+dir
+  use_ancestor_context_for_segmentation: true
+  ancestor_context_decay: 0.5
+  segmentation_bias: true
+  joint_decoder_bias: true
+  segmentation_cross_entropy_weight: 1.0
+  segmentation_dice_weight: 2.0
+  revolute_joint_axis_l1_weight: 1.0
+  prismatic_joint_axis_l1_weight: 1.0
+  revolute_joint_range_l1_weight: 1.0
+  prismatic_joint_range_l1_weight: 1.0
+  revolute_overparam_axis_l1_weight: 5.0
+  revolute_overparam_point_l1_weight: 5.0
+  revolute_overparam_direction_weight: 10.0
+  prismatic_overparam_axis_l1_weight: 0.0
+  prismatic_overparam_point_l1_weight: 5.0
+  prismatic_overparam_direction_weight: 10.0
+  overparam_closest_axis_space: part_aabb
+  model_dim: 768
+  num_heads: 12
+  num_shape_latents: 2048
+  num_attention_blocks: 6
+  coordinate_num_frequencies: 32
+  normal_num_frequencies: 32
+  coordinate_max_frequency: 64.0
+  normal_max_frequency: 16.0
+  link_text_feature_dim: 768
+  embedding_hidden_dim: 48
+  attn_dropout: 0.1
+  proj_dropout: 0.1
+  ffn_multiplier: 4.0
+  ffn_dropout: 0.1
+  qk_norm: true
+  norm_eps: 1.0e-06
+  compute_link_text_embeddings_on_the_fly: false
+  use_text_conditioning: true
+  dropout_all_normals_prob: 0.3
+  dropout_all_point_prompts_prob: 0.25
+  dropout_individual_point_prompt_prob: 0.25
+  dropout_individual_text_conditioning_prob: 0.2
+  use_pretrained_features_shape: true
+  use_pretrained_features_query: true
+  use_pretrained_features_point_prompt: true
+optimizer:
+  learning_rate: 5.0e-07
+  scale_learning_rate: true
+  betas:
+  - 0.9
+  - 0.999
+  weight_decay: 0.01
+  epsilon: 1.0e-08
+scheduler:
+  warmup_steps: 1000
+  min_lr_ratio: 0.1
+  scale_with_num_processes: false
+training:
+  batch_size: 8
+  gradient_accumulation_steps: 1
+  ancestor_context_start_step: 0
+  max_steps: 100000
+  max_grad_norm: 1.0
+  num_workers: 16
+  pin_memory: true
+  persistent_workers: true
+  prefetch_factor: 4
+  log_every_steps: 10
+  checkpoint_every_steps: 10000
+  dry_run_steps: 2

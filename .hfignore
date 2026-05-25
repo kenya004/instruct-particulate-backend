@@ -1,0 +1,10 @@
+gradio_output/
+.cache/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+*.log
+server.pid
+runs/*/checkpoints/*
+partfield/model/model_objaverse.ckpt

@@ -126,10 +126,32 @@ DEMO_CSS = """
 :root {
   --demo-top-row-height: 760px;
   --demo-bottom-row-height: 600px;
+  --demo-text: #111827;
+  --demo-muted: #4b5563;
+  --demo-panel-bg: #f8fafc;
+  --demo-border: #d7deea;
+  --demo-hover-border: #94a3b8;
+  --demo-chip-bg: rgba(255, 255, 255, 0.88);
+  --demo-chip-text: #111827;
+  --demo-focus: #2563eb;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --demo-text: #f8fafc;
+    --demo-muted: #cbd5e1;
+    --demo-panel-bg: #111827;
+    --demo-border: #334155;
+    --demo-hover-border: #64748b;
+    --demo-chip-bg: rgba(15, 23, 42, 0.9);
+    --demo-chip-text: #f8fafc;
+    --demo-focus: #60a5fa;
+  }
 }
 .demo-row {
   align-items: stretch !important;
   gap: 12px !important;
+  flex-wrap: wrap !important;
 }
 .demo-top-row {
   height: var(--demo-top-row-height);
@@ -147,6 +169,7 @@ DEMO_CSS = """
   height: 100%;
   min-height: 0;
   overflow: hidden;
+  color: var(--demo-text) !important;
 }
 .demo-panel > .form,
 .demo-panel > div {
@@ -175,10 +198,11 @@ DEMO_CSS = """
   flex: 0 0 auto;
   max-height: 180px;
   overflow-y: auto;
-  border: 1px solid #d7deea;
+  border: 1px solid var(--demo-border);
   border-radius: 6px;
   padding: 6px;
-  background: #f8fafc;
+  background: var(--demo-panel-bg);
+  color: var(--demo-text) !important;
 }
 .mesh-examples table {
   margin: 0 !important;
@@ -265,7 +289,7 @@ DEMO_CSS = """
 }
 .upright-instructions p {
   margin-top: 3px !important;
-  color: #111827 !important;
+  color: var(--demo-muted) !important;
   font-size: 14px;
   line-height: 1.35;
 }
@@ -308,18 +332,18 @@ DEMO_CSS = """
   min-height: 0 !important;
   height: auto !important;
   aspect-ratio: 1 / 1 !important;
-  border: 1px solid #d7deea !important;
+  border: 1px solid var(--demo-border) !important;
   border-radius: 6px !important;
-  background: #f8fafc !important;
+  background: var(--demo-panel-bg) !important;
   cursor: pointer;
   overflow: hidden !important;
   transition: border-color 120ms ease, box-shadow 120ms ease;
 }
 .upright-option-image:hover {
-  border-color: #94a3b8 !important;
+  border-color: var(--demo-hover-border) !important;
 }
 .upright-option-image.selected {
-  border-color: #2563eb !important;
+  border-color: var(--demo-focus) !important;
   box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.28) !important;
 }
 .upright-option-image .image-container,
@@ -359,10 +383,10 @@ DEMO_CSS = """
   top: 8px;
   left: 8px;
   z-index: 1;
-  border: 1px solid rgba(15, 23, 42, 0.16);
+  border: 1px solid var(--demo-border);
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.88);
-  color: #111827;
+  background: var(--demo-chip-bg);
+  color: var(--demo-chip-text);
   font-size: 12px;
   font-weight: 600;
   line-height: 1;
@@ -432,6 +456,91 @@ DEMO_CSS = """
 .compact-status textarea {
   min-height: 38px !important;
   max-height: 52px !important;
+}
+@media (max-width: 1099px) {
+  .demo-top-row,
+  .demo-bottom-row {
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+  .demo-panel {
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+  .mesh-panel,
+  .prompt-panel,
+  .outputs-panel {
+    overflow: visible !important;
+    padding-right: 0 !important;
+  }
+  .mesh-panel .model3d-container,
+  .mesh-panel model-viewer {
+    height: clamp(240px, 44vw, 340px) !important;
+  }
+  .kin-panel .kinematic-editor-host,
+  .kin-panel .kinematic-editor-host > div,
+  #kinematic_tree_editor_html {
+    min-height: clamp(360px, 58vw, 520px) !important;
+    height: clamp(360px, 58vw, 520px) !important;
+  }
+  .prompt-panel #point-prompt-picker {
+    flex: 0 0 clamp(360px, 58vw, 500px) !important;
+    height: clamp(360px, 58vw, 500px) !important;
+    max-height: none !important;
+  }
+  .prompt-panel .inference-params-panel {
+    max-height: none !important;
+    overflow: visible !important;
+  }
+  .output-triplet-row {
+    --output-tile-size: min(360px, 100cqw);
+    flex: 0 0 auto !important;
+    max-height: none !important;
+    flex-wrap: wrap !important;
+  }
+  .output-triplet-row > .form,
+  .output-triplet-row > div {
+    flex: 1 1 min(100%, 320px) !important;
+  }
+  .capped-output {
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+}
+@media (max-width: 760px) {
+  .demo-row {
+    gap: 10px !important;
+  }
+  .upright-picker-row {
+    flex-wrap: wrap !important;
+  }
+  .upright-picker-row > .form,
+  .upright-picker-row > div {
+    flex: 1 1 calc(50% - 8px) !important;
+    min-width: 140px !important;
+  }
+  .output-triplet-row {
+    --output-tile-size: min(360px, 92vw);
+  }
+  .output-triplet-row > .form,
+  .output-triplet-row > div {
+    flex: 1 1 100% !important;
+  }
+}
+@media (max-width: 460px) {
+  .upright-picker-row > .form,
+  .upright-picker-row > div {
+    flex-basis: 100% !important;
+  }
+  .kin-tree-toolbar,
+  .prompt-picker-toolbar {
+    gap: 6px !important;
+  }
 }
 """
 
@@ -659,30 +768,30 @@ KINEMATIC_TREE_EDITOR_CSS = """
   -webkit-appearance: menulist !important;
   height: 24px;
   max-width: 92px;
-  border: 1px solid #c9d2df !important;
+  border: 1px solid var(--kin-control-border) !important;
   border-radius: 5px !important;
-  background: #ffffff !important;
-  background-color: #ffffff !important;
+  background: var(--kin-control-bg) !important;
+  background-color: var(--kin-control-bg) !important;
   background-image: none !important;
-  color: #111827 !important;
-  -webkit-text-fill-color: #111827 !important;
-  color-scheme: light !important;
+  color: var(--kin-control-text) !important;
+  -webkit-text-fill-color: var(--kin-control-text) !important;
+  color-scheme: light dark !important;
   font-size: 12px;
   padding: 0 4px;
   opacity: 1 !important;
 }
 #kin-tree-editor .kin-joint-motion:hover,
 #kin-tree-editor .kin-joint-motion:focus {
-  background: #ffffff !important;
-  background-color: #ffffff !important;
-  color: #111827 !important;
-  -webkit-text-fill-color: #111827 !important;
+  background: var(--kin-control-bg) !important;
+  background-color: var(--kin-control-bg) !important;
+  color: var(--kin-control-text) !important;
+  -webkit-text-fill-color: var(--kin-control-text) !important;
 }
 #kin-tree-editor .kin-joint-motion option {
-  background: #ffffff !important;
-  background-color: #ffffff !important;
-  color: #111827 !important;
-  -webkit-text-fill-color: #111827 !important;
+  background: var(--kin-control-bg) !important;
+  background-color: var(--kin-control-bg) !important;
+  color: var(--kin-control-text) !important;
+  -webkit-text-fill-color: var(--kin-control-text) !important;
 }
 .kin-joint-delete {
   flex: 0 0 auto;
@@ -778,7 +887,7 @@ KINEMATIC_TREE_EDITOR_CSS = """
   font-size: 13px;
 }
 .kin-node input::placeholder {
-  color: #4b5563 !important;
+  color: var(--kin-muted) !important;
 }
 .prompt-picker-panel {
   border: 1px solid var(--kin-panel-border);
@@ -2426,7 +2535,7 @@ def _render_up_direction_previews_with_blender(
         "--output-dir",
         str(render_output_dir),
         "--resolution",
-        "384",
+        os.environ.get("UPRIGHT_PREVIEW_RESOLUTION", "288"),
         "--up-dirs",
         ",".join(UP_DIR_CHOICES),
     ]
@@ -3671,7 +3780,7 @@ def create_gradio_app(app: InstructParticulateApp) -> gr.Blocks:
         latest_output_dir = gr.State(None)
 
         with gr.Row(equal_height=True, elem_classes=["demo-row", "demo-top-row"]):
-            with gr.Column(scale=1, elem_classes=["demo-panel", "mesh-panel"]):
+            with gr.Column(scale=1, min_width=300, elem_classes=["demo-panel", "mesh-panel"]):
                 input_mesh = gr.Model3D(label="Input Mesh", interactive=True, height=300)
                 examples = _example_meshes()
                 examples_container = None
@@ -3685,7 +3794,7 @@ def create_gradio_app(app: InstructParticulateApp) -> gr.Blocks:
                     with gr.Column(elem_classes=["mesh-examples"]) as examples_container:
                         pass
 
-            with gr.Column(scale=1, elem_classes=["demo-panel", "kin-panel"]):
+            with gr.Column(scale=1, min_width=300, elem_classes=["demo-panel", "kin-panel"]):
                 extract_button = gr.Button("Extract Kinematic Structure")
                 auto_status = gr.Textbox(
                     label="Kinematic Extraction Status",
@@ -3708,7 +3817,7 @@ def create_gradio_app(app: InstructParticulateApp) -> gr.Blocks:
                         elem_classes=["capped-output"],
                     )
 
-            with gr.Column(scale=1, elem_classes=["demo-panel", "prompt-panel"]):
+            with gr.Column(scale=1, min_width=300, elem_classes=["demo-panel", "prompt-panel"]):
                 gr.HTML(_point_prompt_picker_html())
                 with gr.Accordion("Inference Parameters", open=True, elem_classes=["inference-params-panel"]):
                     with gr.Row():
@@ -3777,7 +3886,7 @@ def create_gradio_app(app: InstructParticulateApp) -> gr.Blocks:
         )
 
         with gr.Row(equal_height=True, elem_classes=["demo-row", "demo-bottom-row"]):
-            with gr.Column(scale=1, elem_classes=["demo-panel", "orientation-panel"]):
+            with gr.Column(scale=1, min_width=300, elem_classes=["demo-panel", "orientation-panel"]):
                 gr.HTML(
                     """
                     <div class="upright-instructions">
@@ -3807,7 +3916,7 @@ def create_gradio_app(app: InstructParticulateApp) -> gr.Blocks:
                                 preview_image.buttons = []
                                 upright_preview_images.append(preview_image)
 
-            with gr.Column(scale=2, elem_classes=["demo-panel", "outputs-panel"]):
+            with gr.Column(scale=2, min_width=300, elem_classes=["demo-panel", "outputs-panel"]):
                 with gr.Row(equal_height=True, elem_classes=["output-triplet-row"]):
                     query_visualization = gr.Image(
                         label="Point Query Visualization",

@@ -79,9 +79,12 @@ def reset_scene() -> bpy.types.Object:
 def configure_render(resolution: int) -> None:
     scene = bpy.context.scene
     try:
-        scene.render.engine = "BLENDER_EEVEE_NEXT"
+        scene.render.engine = "BLENDER_WORKBENCH"
     except TypeError:
-        scene.render.engine = "BLENDER_EEVEE"
+        try:
+            scene.render.engine = "BLENDER_EEVEE_NEXT"
+        except TypeError:
+            scene.render.engine = "BLENDER_EEVEE"
     scene.render.resolution_x = int(resolution)
     scene.render.resolution_y = int(resolution)
     scene.render.resolution_percentage = 100
@@ -97,8 +100,30 @@ def configure_render(resolution: int) -> None:
     scene.view_settings.look = "Medium High Contrast"
     scene.view_settings.exposure = 0.0
     scene.view_settings.gamma = 1.0
+    if hasattr(scene, "display") and hasattr(scene.display, "shading"):
+        shading = scene.display.shading
+        for attr, value in (
+            ("light", "STUDIO"),
+            ("color_type", "TEXTURE"),
+            ("background_type", "COLOR"),
+            ("show_cavity", False),
+            ("show_object_outline", False),
+            ("show_xray", False),
+        ):
+            try:
+                setattr(shading, attr, value)
+            except (AttributeError, TypeError):
+                pass
+        try:
+            shading.background_color = (0.97, 0.98, 0.99)
+        except (AttributeError, TypeError):
+            pass
+        try:
+            scene.display.render_aa = "8"
+        except (AttributeError, TypeError):
+            pass
     if hasattr(scene, "eevee"):
-        scene.eevee.taa_render_samples = 32
+        scene.eevee.taa_render_samples = 8
 
 
 def load_object(mesh_path: Path) -> None:

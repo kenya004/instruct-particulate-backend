@@ -111,6 +111,7 @@ OUTPUT_ROOT = Path(os.environ.get("INSTRUCT_PARTICULATE_OUTPUT_ROOT", str(DEFAUL
 UP_DIR_CHOICES = ["+X", "-X", "+Y", "-Y", "+Z", "-Z"]
 AUTO_KINEMATICS_MODEL_ID = "gemini-3.5-flash"
 AUTO_KINEMATICS_REASONING_EFFORT = "medium"
+MESH_CACHE_NAMESPACE = "v2"
 AUTO_KINEMATICS_CACHE_VERSION = 2
 
 DEFAULT_KINEMATIC_TREE = {
@@ -2614,7 +2615,7 @@ def _mesh_file_sha256(mesh_path: Path) -> str:
 
 
 def _mesh_cache_dir(mesh_hash: str) -> Path:
-    return OUTPUT_ROOT / "mesh_cache" / str(mesh_hash)
+    return OUTPUT_ROOT / "mesh_cache" / MESH_CACHE_NAMESPACE / str(mesh_hash)
 
 
 def _timestamped_mesh_output_dir(output_root: Path, mesh_hash: str, suffix: str = "") -> Path:

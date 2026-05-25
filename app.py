@@ -197,15 +197,35 @@ DEMO_CSS = """
 }
 .inference-params-panel {
   flex: 0 0 auto !important;
+  height: auto !important;
+  min-height: 0 !important;
+  max-height: none !important;
+  overflow: visible !important;
 }
 .inference-params-static {
   border: 1px solid var(--demo-border) !important;
   border-radius: 6px !important;
   background: transparent !important;
   padding: 8px 10px !important;
+  height: auto !important;
+  min-height: 0 !important;
+  max-height: none !important;
 }
 .inference-params-panel .form {
   gap: 6px !important;
+  min-height: 0 !important;
+  padding: 0 !important;
+  background: transparent !important;
+}
+.inference-params-panel > div,
+.inference-params-panel .block,
+.inference-params-panel .wrap,
+.inference-params-panel .checkbox,
+.inference-params-panel .checkbox-group {
+  min-height: 0 !important;
+  margin-bottom: 0 !important;
+  padding-bottom: 0 !important;
+  background: transparent !important;
 }
 .inference-params-title,
 .inference-params-title > div,
@@ -251,6 +271,14 @@ DEMO_CSS = """
 .toggle-switch label,
 .toggle-switch span {
   color: var(--demo-text) !important;
+}
+.toggle-switch,
+.toggle-switch > div,
+.toggle-switch label {
+  min-height: 0 !important;
+  margin-bottom: 0 !important;
+  padding-bottom: 0 !important;
+  background: transparent !important;
 }
 .mesh-examples {
   flex: 0 0 auto;
@@ -303,8 +331,9 @@ DEMO_CSS = """
 }
 .prompt-panel .inference-params-panel {
   flex: 0 0 auto !important;
-  max-height: 250px !important;
-  overflow-y: auto !important;
+  height: auto !important;
+  max-height: none !important;
+  overflow: visible !important;
   display: block !important;
   opacity: 1 !important;
   visibility: visible !important;
@@ -2244,7 +2273,7 @@ KINEMATIC_TREE_EDITOR_JS = r"""
           state.promptDrag.moved = true;
         }
         if (state.promptDrag.moved) {
-          state.promptCamera.yaw = state.promptDrag.yaw + dx * 0.01;
+          state.promptCamera.yaw = state.promptDrag.yaw - dx * 0.01;
           state.promptCamera.pitch = state.promptDrag.pitch + dy * 0.01;
           renderPromptMesh();
         }

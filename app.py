@@ -105,7 +105,7 @@ DEFAULT_KINEMATIC_TREE = {
 DEMO_CSS = """
 :root {
   --demo-top-row-height: 760px;
-  --demo-bottom-row-height: 760px;
+  --demo-bottom-row-height: 600px;
 }
 .demo-row {
   align-items: stretch !important;

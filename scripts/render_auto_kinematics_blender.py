@@ -106,6 +106,8 @@ def load_object(mesh_path: Path) -> None:
             result = importer(filepath=str(mesh_path), merge_vertices=False)
         except TypeError:
             result = importer(filepath=str(mesh_path))
+    elif suffix == "obj":
+        result = importer(filepath=str(mesh_path), forward_axis="Y", up_axis="Z")
     else:
         result = importer(filepath=str(mesh_path))
     if "FINISHED" not in result:

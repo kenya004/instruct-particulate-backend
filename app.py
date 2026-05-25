@@ -111,6 +111,7 @@ OUTPUT_ROOT = Path(os.environ.get("INSTRUCT_PARTICULATE_OUTPUT_ROOT", str(DEFAUL
 UP_DIR_CHOICES = ["+X", "-X", "+Y", "-Y", "+Z", "-Z"]
 AUTO_KINEMATICS_MODEL_ID = "gemini-3.5-flash"
 AUTO_KINEMATICS_REASONING_EFFORT = "medium"
+AUTO_KINEMATICS_CACHE_VERSION = 2
 
 DEFAULT_KINEMATIC_TREE = {
     "links": [
@@ -2651,7 +2652,11 @@ def _auto_kinematics_cache_complete_path(cache_dir: Path) -> Path:
 def _cached_auto_kinematics(
     cache_dir: Path,
 ) -> tuple[str, str, list[tuple[str, str]]] | None:
-    if not _auto_kinematics_cache_complete_path(cache_dir).exists():
+    complete_path = _auto_kinematics_cache_complete_path(cache_dir)
+    if not complete_path.exists():
+        return None
+    complete_payload = json.loads(complete_path.read_text(encoding="utf-8"))
+    if int(complete_payload.get("version", 0)) != AUTO_KINEMATICS_CACHE_VERSION:
         return None
     tree_path = cache_dir / "demo_kinematic_tree.json"
     prompt_path = cache_dir / "demo_point_prompts.json"
@@ -2703,7 +2708,7 @@ def _store_auto_kinematics_cache(source_dir: Path, cache_dir: Path) -> None:
     _auto_kinematics_cache_complete_path(temp_dir).write_text(
         json.dumps(
             {
-                "version": 1,
+                "version": AUTO_KINEMATICS_CACHE_VERSION,
                 "created_at": datetime.now().isoformat(timespec="seconds"),
                 "render_count": len(render_paths),
             },

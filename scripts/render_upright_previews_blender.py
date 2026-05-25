@@ -17,7 +17,26 @@ except ImportError:  # pragma: no cover - Blender-only runtime dependency
     Vector = None
 
 
+def patch_numpy_compatibility() -> None:
+    try:
+        import numpy as np
+    except ImportError:
+        return
+
+    deprecated_aliases = {
+        "bool": bool,
+        "int": int,
+        "float": float,
+        "complex": complex,
+        "object": object,
+    }
+    for name, value in deprecated_aliases.items():
+        if name not in np.__dict__:
+            setattr(np, name, value)
+
+
 if bpy is not None:
+    patch_numpy_compatibility()
     IMPORT_FUNCTIONS = {
         "obj": bpy.ops.wm.obj_import,
         "glb": bpy.ops.import_scene.gltf,

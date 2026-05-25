@@ -143,11 +143,17 @@ DEMO_CSS = """
 }
 .mesh-panel .model3d-container,
 .mesh-panel model-viewer {
-  height: 360px !important;
+  height: 300px !important;
+}
+.inference-params-panel {
+  flex: 0 0 auto !important;
+}
+.inference-params-panel .form {
+  gap: 6px !important;
 }
 .mesh-examples {
   flex: 0 0 auto;
-  max-height: 105px;
+  max-height: 82px;
   overflow-y: auto;
   border: 1px solid #d7deea;
   border-radius: 6px;
@@ -192,15 +198,21 @@ DEMO_CSS = """
 .orientation-panel {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 0 !important;
 }
 .orientation-panel .markdown {
   flex: 0 0 auto !important;
   margin: 0 !important;
+  padding-bottom: 0 !important;
 }
 .orientation-panel .markdown h3,
 .orientation-panel .markdown p {
-  margin-bottom: 4px !important;
+  margin-bottom: 0 !important;
+}
+.orientation-panel > .form,
+.orientation-panel > div,
+.orientation-panel .form {
+  gap: 0 !important;
 }
 .upright-picker-grid {
   flex: 0 0 auto !important;
@@ -209,7 +221,9 @@ DEMO_CSS = """
   width: 100% !important;
   display: flex !important;
   flex-direction: column !important;
-  gap: 8px !important;
+  gap: 6px !important;
+  margin-top: 0 !important;
+  padding-top: 0 !important;
 }
 .upright-picker-row {
   flex: 0 0 auto !important;
@@ -328,6 +342,13 @@ DEMO_CSS = """
 .capped-output model-viewer,
 .capped-output canvas {
   max-height: 390px !important;
+}
+.compact-status {
+  flex: 0 0 auto !important;
+}
+.compact-status textarea {
+  min-height: 38px !important;
+  max-height: 52px !important;
 }
 """
 
@@ -3516,19 +3537,16 @@ def create_gradio_app(app: InstructParticulateApp) -> gr.Blocks:
 
         with gr.Row(equal_height=True, elem_classes=["demo-row", "demo-top-row"]):
             with gr.Column(scale=1, elem_classes=["demo-panel", "mesh-panel"]):
-                input_mesh = gr.Model3D(label="Input Mesh", interactive=True, height=360)
+                input_mesh = gr.Model3D(label="Input Mesh", interactive=True, height=300)
                 examples = _example_meshes()
                 examples_container = None
-                if examples:
-                    with gr.Column(elem_classes=["mesh-examples"]) as examples_container:
-                        pass
                 mesh_status = gr.Textbox(
                     label="Mesh Status",
                     interactive=False,
                     visible=False,
                     elem_classes=["kinematic-json-sync"],
                 )
-                with gr.Accordion("Inference Parameters", open=True):
+                with gr.Accordion("Inference Parameters", open=True, elem_classes=["inference-params-panel"]):
                     with gr.Row():
                         num_query_points = gr.Number(
                             value=102400,
@@ -3569,6 +3587,9 @@ def create_gradio_app(app: InstructParticulateApp) -> gr.Blocks:
                         label="Joint Confidence Temperature",
                         minimum=0.01,
                     )
+                if examples:
+                    with gr.Column(elem_classes=["mesh-examples"]) as examples_container:
+                        pass
 
             with gr.Column(scale=1, elem_classes=["demo-panel", "kin-panel"]):
                 extract_button = gr.Button("Extract Kinematic Structure")
@@ -3700,7 +3721,13 @@ def create_gradio_app(app: InstructParticulateApp) -> gr.Blocks:
                     visible=False,
                     elem_classes=["kinematic-json-sync"],
                 )
-                status = gr.Textbox(label="Status", interactive=False)
+                status = gr.Textbox(
+                    label="Status",
+                    interactive=False,
+                    lines=1,
+                    max_lines=2,
+                    elem_classes=["compact-status"],
+                )
 
         input_mesh.change(
             fn=app.register_mesh,

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
 import json
 import os
 import shutil
@@ -2603,6 +2604,84 @@ def _upright_preview_paths(gallery_items: list[tuple[str, str]]) -> list[str | N
     return paths[: len(UP_DIR_CHOICES)]
 
 
+def _mesh_file_sha256(mesh_path: Path) -> str:
+    digest = hashlib.sha256()
+    with mesh_path.open("rb") as file:
+        for chunk in iter(lambda: file.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _mesh_cache_dir(mesh_hash: str) -> Path:
+    return OUTPUT_ROOT / "mesh_cache" / str(mesh_hash)
+
+
+def _timestamped_mesh_output_dir(output_root: Path, mesh_hash: str, suffix: str = "") -> Path:
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    name_parts = [str(mesh_hash)]
+    if suffix:
+        name_parts.append(str(suffix))
+    name_parts.append(timestamp)
+    return output_root / "_".join(name_parts)
+
+
+def _upright_preview_cache_dir(mesh_hash: str) -> Path:
+    return _mesh_cache_dir(mesh_hash) / "upright_previews"
+
+
+def _cached_upright_preview_items(mesh_hash: str) -> list[tuple[str, str]] | None:
+    preview_dir = _upright_preview_cache_dir(mesh_hash)
+    gallery_items: list[tuple[str, str]] = []
+    for up_dir in UP_DIR_CHOICES:
+        output_path = preview_dir / f"up_{_up_dir_slug(up_dir)}.png"
+        if not output_path.exists():
+            return None
+        gallery_items.append((str(output_path), f"{up_dir} up"))
+    return gallery_items
+
+
+def _auto_kinematics_cache_dir(mesh_hash: str, up_dir: str) -> Path:
+    return _mesh_cache_dir(mesh_hash) / "auto_kinematics"
+
+
+def _cached_auto_kinematics(
+    cache_dir: Path,
+) -> tuple[str, str, list[tuple[str, str]]] | None:
+    tree_path = cache_dir / "demo_kinematic_tree.json"
+    prompt_path = cache_dir / "demo_point_prompts.json"
+    renders_dir = cache_dir / "renders"
+    if not tree_path.exists() or not prompt_path.exists() or not renders_dir.exists():
+        return None
+    render_paths = sorted(renders_dir.glob("view_*.png"))
+    if len(render_paths) == 0:
+        return None
+    overlay_paths = sorted((cache_dir / "point_prompt_overlays").glob("*.png"))
+    gallery_items = [
+        (str(render_path), f"Render {index}")
+        for index, render_path in enumerate(render_paths)
+    ]
+    gallery_items.extend(
+        (str(overlay_path), f"Prompt overlay {overlay_path.stem}")
+        for overlay_path in overlay_paths
+    )
+    return (
+        tree_path.read_text(encoding="utf-8").strip(),
+        prompt_path.read_text(encoding="utf-8").strip(),
+        gallery_items,
+    )
+
+
+def _store_auto_kinematics_cache(source_dir: Path, cache_dir: Path) -> None:
+    temp_dir = cache_dir.parent / f".{cache_dir.name}.tmp_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}"
+    if temp_dir.exists():
+        shutil.rmtree(temp_dir)
+    temp_dir.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(source_dir, temp_dir)
+    if cache_dir.exists():
+        shutil.rmtree(cache_dir)
+    temp_dir.rename(cache_dir)
+
+
 def _set_preview_axes_equal(ax: Any, vertices: np.ndarray) -> None:
     bbox_min = vertices.min(axis=0)
     bbox_max = vertices.max(axis=0)
@@ -2855,9 +2934,16 @@ def _render_up_direction_previews(
     *,
     mesh_path: Path,
     mesh: Any,
+    mesh_hash: str | None = None,
 ) -> list[tuple[str, str]]:
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-    preview_dir = OUTPUT_ROOT / "up_direction_previews" / f"{mesh_path.stem}_{timestamp}"
+    if mesh_hash is not None:
+        cached_items = _cached_upright_preview_items(mesh_hash)
+        if cached_items is not None:
+            return cached_items
+        preview_dir = _upright_preview_cache_dir(mesh_hash)
+    else:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        preview_dir = OUTPUT_ROOT / "up_direction_previews" / f"{mesh_path.stem}_{timestamp}"
     preview_renderer = os.environ.get("UPRIGHT_PREVIEW_RENDERER", "software").strip().lower()
     if preview_renderer == "blender":
         try:
@@ -3023,6 +3109,8 @@ def _normalize_point_prompt_arrays(
     normals: np.ndarray,
     mesh_geometry: Any,
 ) -> tuple[np.ndarray, np.ndarray]:
+    # Point prompt JSON stores raw upload-space coordinates; inference uses the
+    # same upright transform as the input mesh before normalization.
     rotation = np.asarray(mesh_geometry.up_dir_rotation, dtype=np.float32)
     rotated_points = np.asarray(points, dtype=np.float32) @ rotation.T
     rotated_normals = np.asarray(normals, dtype=np.float32) @ rotation.T
@@ -3100,6 +3188,9 @@ def _point_prompt_json_from_normalized_prompts(
     normalized_normals: np.ndarray,
     mesh_geometry: Any,
 ) -> str:
+    # Auto-kinematics lifting produces normalized model-space prompts. Store
+    # them back in raw upload-space coordinates so cached prompts are reusable
+    # across later upright-orientation choices.
     rotation = np.asarray(mesh_geometry.up_dir_rotation, dtype=np.float32)
     points = np.asarray(normalized_points, dtype=np.float32)
     normals = np.asarray(normalized_normals, dtype=np.float32)
@@ -3353,6 +3444,7 @@ class InstructParticulateApp:
         if mesh_path is None:
             yield (
                 None,
+                None,
                 "Upload a mesh to run inference.",
                 "",
                 *empty_orientation_previews,
@@ -3363,9 +3455,11 @@ class InstructParticulateApp:
             )
             return
         try:
+            mesh_hash = _mesh_file_sha256(mesh_path)
             mesh = load_trimesh(mesh_path)
         except Exception as exc:
             yield (
+                None,
                 None,
                 f"Could not load mesh: {exc}",
                 "",
@@ -3377,10 +3471,21 @@ class InstructParticulateApp:
             )
             return
 
-        rendering_orientation_previews = _upright_rendering_preview_paths()
+        cached_upright_previews = _cached_upright_preview_items(mesh_hash)
+        rendering_orientation_previews = (
+            _upright_preview_paths(cached_upright_previews)
+            if cached_upright_previews is not None
+            else _upright_rendering_preview_paths()
+        )
+        preview_status = (
+            "Using cached upright orientation previews."
+            if cached_upright_previews is not None
+            else "Rendering upright orientation previews..."
+        )
         yield (
             str(mesh_path),
-            f"Loaded {mesh_path.name}: {len(mesh.faces)} faces. Rendering upright orientation previews...",
+            mesh_hash,
+            f"Loaded {mesh_path.name}: {len(mesh.faces)} faces. {preview_status}",
             "",
             *rendering_orientation_previews,
             "",
@@ -3394,6 +3499,7 @@ class InstructParticulateApp:
         except Exception as exc:
             yield (
                 str(mesh_path),
+                mesh_hash,
                 f"Loaded {mesh_path.name}: {len(mesh.faces)} faces. Could not prepare point picker mesh: {exc}",
                 "",
                 *rendering_orientation_previews,
@@ -3406,7 +3512,8 @@ class InstructParticulateApp:
 
         yield (
             str(mesh_path),
-            f"Loaded {mesh_path.name}: {len(mesh.faces)} faces. Point picker ready. Rendering upright orientation previews...",
+            mesh_hash,
+            f"Loaded {mesh_path.name}: {len(mesh.faces)} faces. Point picker ready. {preview_status}",
             prompt_mesh_data,
             *rendering_orientation_previews,
             "",
@@ -3414,16 +3521,31 @@ class InstructParticulateApp:
             gr.update(interactive=False),
             gr.update(value=None, interactive=False),
         )
+        if cached_upright_previews is not None:
+            yield (
+                str(mesh_path),
+                mesh_hash,
+                f"Loaded {mesh_path.name}: {len(mesh.faces)} faces. Select the upright orientation before inference.",
+                prompt_mesh_data,
+                *_upright_preview_paths(cached_upright_previews),
+                "",
+                None,
+                gr.update(interactive=False),
+                gr.update(value=None, interactive=False),
+            )
+            return
 
         try:
             upright_previews = _render_up_direction_previews(
                 mesh_path=mesh_path,
                 mesh=mesh,
+                mesh_hash=mesh_hash,
             )
         except Exception as exc:
             traceback.print_exc()
             yield (
                 str(mesh_path),
+                mesh_hash,
                 f"Loaded {mesh_path.name}: {len(mesh.faces)} faces. Upright-view previews could not be rendered: {exc}",
                 prompt_mesh_data,
                 *empty_orientation_previews,
@@ -3436,6 +3558,7 @@ class InstructParticulateApp:
 
         yield (
             str(mesh_path),
+            mesh_hash,
             f"Loaded {mesh_path.name}: {len(mesh.faces)} faces. Select the upright orientation before inference.",
             prompt_mesh_data,
             *_upright_preview_paths(upright_previews),
@@ -3448,6 +3571,7 @@ class InstructParticulateApp:
     def extract_kinematic_structure(
         self,
         mesh_path_value: Any,
+        mesh_hash_value: Any,
         current_kinematic_tree_json: str,
         current_point_prompt_json: str,
         up_dir: str,
@@ -3475,8 +3599,24 @@ class InstructParticulateApp:
         gallery_items: list[tuple[str, str]] = []
         try:
             canonical_up = canonicalize_up_dir(up_dir)
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            output_dir = self.output_root / f"{mesh_path.stem}_auto_{timestamp}"
+            mesh_hash = str(mesh_hash_value or _mesh_file_sha256(mesh_path))
+            cache_dir = _auto_kinematics_cache_dir(mesh_hash, canonical_up)
+            cached_auto = _cached_auto_kinematics(cache_dir)
+            if cached_auto is not None:
+                extracted_tree_json, extracted_prompt_json, gallery_items = cached_auto
+                yield (
+                    extracted_tree_json,
+                    extracted_prompt_json,
+                    gallery_items,
+                    "Success (cached)",
+                )
+                return
+
+            output_dir = _timestamped_mesh_output_dir(
+                self.output_root,
+                mesh_hash,
+                suffix="auto",
+            )
             auto_output_dir = output_dir / "auto_kinematics"
             renders_dir = auto_output_dir / "renders"
             auto_output_dir.mkdir(parents=True, exist_ok=True)
@@ -3566,6 +3706,7 @@ class InstructParticulateApp:
                 extracted_prompt_json + "\n",
                 encoding="utf-8",
             )
+            _store_auto_kinematics_cache(auto_output_dir, cache_dir)
 
             yield (
                 extracted_tree_json,
@@ -3587,6 +3728,7 @@ class InstructParticulateApp:
     def predict_segmentation_payload(
         self,
         mesh_path_value: Any,
+        mesh_hash_value: Any,
         kinematic_tree_json: str,
         point_prompt_json: str,
         up_dir: str,
@@ -3635,8 +3777,8 @@ class InstructParticulateApp:
                 )
                 return
             canonical_up = canonicalize_up_dir(up_dir)
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            output_dir = self.output_root / f"{mesh_path.stem}_{timestamp}"
+            mesh_hash = str(mesh_hash_value or _mesh_file_sha256(mesh_path))
+            output_dir = _timestamped_mesh_output_dir(self.output_root, mesh_hash)
             output_dir.mkdir(parents=True, exist_ok=True)
             args = _make_inference_args(
                 output_dir=output_dir,
@@ -4273,6 +4415,7 @@ def _get_active_app() -> InstructParticulateApp:
 @_spaces_gpu
 def run_predict_on_gpu(
     mesh_path_value: Any,
+    mesh_hash_value: Any,
     kinematic_tree_json: str,
     point_prompt_json: str,
     up_dir: str,
@@ -4286,6 +4429,7 @@ def run_predict_on_gpu(
 ):
     yield from _get_active_app().predict_segmentation_payload(
         mesh_path_value,
+        mesh_hash_value,
         kinematic_tree_json,
         point_prompt_json,
         up_dir,
@@ -4415,6 +4559,7 @@ def create_gradio_app(app: InstructParticulateApp) -> gr.Blocks:
         )
 
         loaded_mesh_path = gr.State(None)
+        loaded_mesh_hash = gr.State(None)
         selected_up_dir = gr.Textbox(
             value="",
             label="Selected Upright Direction",
@@ -4588,6 +4733,7 @@ def create_gradio_app(app: InstructParticulateApp) -> gr.Blocks:
                     inputs=[input_mesh],
                     outputs=[
                         loaded_mesh_path,
+                        loaded_mesh_hash,
                         mesh_status,
                         point_prompt_mesh_data,
                         *upright_preview_images,
@@ -4607,6 +4753,7 @@ def create_gradio_app(app: InstructParticulateApp) -> gr.Blocks:
             inputs=[input_mesh],
             outputs=[
                 loaded_mesh_path,
+                loaded_mesh_hash,
                 mesh_status,
                 point_prompt_mesh_data,
                 *upright_preview_images,
@@ -4620,6 +4767,7 @@ def create_gradio_app(app: InstructParticulateApp) -> gr.Blocks:
             fn=app.extract_kinematic_structure,
             inputs=[
                 input_mesh,
+                loaded_mesh_hash,
                 kinematic_tree,
                 point_prompts,
                 selected_up_dir,
@@ -4647,6 +4795,7 @@ def create_gradio_app(app: InstructParticulateApp) -> gr.Blocks:
             fn=run_predict_on_gpu,
             inputs=[
                 input_mesh,
+                loaded_mesh_hash,
                 kinematic_tree,
                 point_prompts,
                 selected_up_dir,

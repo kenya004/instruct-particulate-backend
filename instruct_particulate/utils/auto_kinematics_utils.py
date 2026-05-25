@@ -7,6 +7,7 @@ import os
 import re
 import shutil
 import subprocess
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Sequence
@@ -229,87 +230,94 @@ def render_mesh_auto_kinematics_views(
     if not blender_script_path.exists():
         raise FileNotFoundError(f"Auto-kinematics Blender script does not exist: {blender_script_path}")
 
-    if mesh_path is None:
-        render_mesh_path = output_dir / "_auto_kinematics_render_mesh.glb"
-        mesh.export(render_mesh_path)
-    else:
-        render_mesh_path = Path(mesh_path).expanduser().resolve()
-        if not render_mesh_path.exists():
-            raise FileNotFoundError(f"Auto-kinematics render mesh path does not exist: {render_mesh_path}")
-    command = [
-        str(blender_path),
-        "-b",
-        "-P",
-        str(blender_script_path),
-        "--",
-        "--mesh-path",
-        str(render_mesh_path),
-        "--output-dir",
-        str(output_dir),
-        "--resolution",
-        str(int(resolution)),
-        "--camera-distance",
-        repr(float(camera_distance)),
-        "--pitch-deg",
-        repr(float(pitch_deg)),
-        "--engine",
-        DEFAULT_BLENDER_RENDER_ENGINE,
-        "--samples",
-        str(int(DEFAULT_BLENDER_RENDER_SAMPLES)),
-        "--azimuths",
-        *[repr(float(azimuth_deg)) for azimuth_deg in azimuths],
-    ]
-    if up_dir is not None and str(up_dir).strip():
-        command.extend(["--up-dir", str(up_dir)])
-    print(
-        f"Rendering {len(azimuths)} auto-kinematics views with Blender at {blender_path}"
-    )
-    subprocess.run(command, check=True)
-
-    total_views = len(azimuths)
-    for image_id, azimuth_deg in enumerate(azimuths):
-        image_path = output_dir / f"view_{image_id:03d}.png"
-        camera_path = output_dir / f"view_{image_id:03d}_camera.npz"
-        if not image_path.exists():
-            raise FileNotFoundError(f"Blender render output is missing image: {image_path}")
-        if not camera_path.exists():
-            raise FileNotFoundError(f"Blender render output is missing camera data: {camera_path}")
-
+    with tempfile.TemporaryDirectory(prefix="auto_kinematics_renders_") as temp_dir:
+        render_output_dir = Path(temp_dir)
+        if mesh_path is None:
+            render_mesh_path = render_output_dir / "_auto_kinematics_render_mesh.glb"
+            mesh.export(render_mesh_path)
+        else:
+            render_mesh_path = Path(mesh_path).expanduser().resolve()
+            if not render_mesh_path.exists():
+                raise FileNotFoundError(f"Auto-kinematics render mesh path does not exist: {render_mesh_path}")
+        command = [
+            str(blender_path),
+            "-b",
+            "-P",
+            str(blender_script_path),
+            "--",
+            "--mesh-path",
+            str(render_mesh_path),
+            "--output-dir",
+            str(render_output_dir),
+            "--resolution",
+            str(int(resolution)),
+            "--camera-distance",
+            repr(float(camera_distance)),
+            "--pitch-deg",
+            repr(float(pitch_deg)),
+            "--engine",
+            DEFAULT_BLENDER_RENDER_ENGINE,
+            "--samples",
+            str(int(DEFAULT_BLENDER_RENDER_SAMPLES)),
+            "--azimuths",
+            *[repr(float(azimuth_deg)) for azimuth_deg in azimuths],
+        ]
+        if up_dir is not None and str(up_dir).strip():
+            command.extend(["--up-dir", str(up_dir)])
         print(
-            f"Loading auto-kinematics view {image_id + 1}/{total_views} "
-            f"(azimuth={float(azimuth_deg):.1f} deg)"
+            f"Rendering {len(azimuths)} auto-kinematics views with Blender at {blender_path}"
         )
-        camera_payload = np.load(camera_path)
-        intrinsic = np.asarray(camera_payload["intrinsic"], dtype=np.float64)
-        camera_to_world = np.asarray(camera_payload["camera_to_world"], dtype=np.float64)
-        world_to_camera = np.asarray(camera_payload["world_to_camera"], dtype=np.float64)
-        face_ids = np.asarray(camera_payload["face_ids"], dtype=np.int32)
-        hit_points = np.asarray(camera_payload["hit_points"], dtype=np.float32)
-        normals = np.asarray(camera_payload["normals"], dtype=np.float32)
-        depth = np.asarray(camera_payload["depth"], dtype=np.float32)
-        elevation_deg = (
-            float(camera_payload["elevation_deg"])
-            if "elevation_deg" in camera_payload.files
-            else float(DEFAULT_RENDER_ELEVATION_DEG)
-        )
-        rendered_views.append(
-            RenderedView(
-                image_id=int(image_id),
-                image_path=image_path,
-                camera_path=camera_path,
-                azimuth_deg=float(azimuth_deg),
-                elevation_deg=elevation_deg,
-                width=int(resolution),
-                height=int(resolution),
-                intrinsic=intrinsic.astype(np.float32),
-                camera_to_world=camera_to_world.astype(np.float32),
-                world_to_camera=world_to_camera.astype(np.float32),
-                face_ids=face_ids.astype(np.int32, copy=False),
-                hit_points=hit_points.astype(np.float32, copy=False),
-                normals=normals.astype(np.float32, copy=False),
-                depth=depth.astype(np.float32, copy=False),
+        subprocess.run(command, check=True)
+
+        total_views = len(azimuths)
+        for image_id, azimuth_deg in enumerate(azimuths):
+            temp_image_path = render_output_dir / f"view_{image_id:03d}.png"
+            temp_camera_path = render_output_dir / f"view_{image_id:03d}_camera.npz"
+            if not temp_image_path.exists():
+                raise FileNotFoundError(f"Blender render output is missing image: {temp_image_path}")
+            if not temp_camera_path.exists():
+                raise FileNotFoundError(f"Blender render output is missing camera data: {temp_camera_path}")
+
+            image_path = output_dir / temp_image_path.name
+            camera_path = output_dir / temp_camera_path.name
+            shutil.copy2(temp_image_path, image_path)
+            shutil.copy2(temp_camera_path, camera_path)
+
+            print(
+                f"Loading auto-kinematics view {image_id + 1}/{total_views} "
+                f"(azimuth={float(azimuth_deg):.1f} deg)"
             )
-        )
+            camera_payload = np.load(temp_camera_path)
+            intrinsic = np.asarray(camera_payload["intrinsic"], dtype=np.float64)
+            camera_to_world = np.asarray(camera_payload["camera_to_world"], dtype=np.float64)
+            world_to_camera = np.asarray(camera_payload["world_to_camera"], dtype=np.float64)
+            face_ids = np.asarray(camera_payload["face_ids"], dtype=np.int32)
+            hit_points = np.asarray(camera_payload["hit_points"], dtype=np.float32)
+            normals = np.asarray(camera_payload["normals"], dtype=np.float32)
+            depth = np.asarray(camera_payload["depth"], dtype=np.float32)
+            elevation_deg = (
+                float(camera_payload["elevation_deg"])
+                if "elevation_deg" in camera_payload.files
+                else float(DEFAULT_RENDER_ELEVATION_DEG)
+            )
+            rendered_views.append(
+                RenderedView(
+                    image_id=int(image_id),
+                    image_path=image_path,
+                    camera_path=camera_path,
+                    azimuth_deg=float(azimuth_deg),
+                    elevation_deg=elevation_deg,
+                    width=int(resolution),
+                    height=int(resolution),
+                    intrinsic=intrinsic.astype(np.float32),
+                    camera_to_world=camera_to_world.astype(np.float32),
+                    world_to_camera=world_to_camera.astype(np.float32),
+                    face_ids=face_ids.astype(np.int32, copy=False),
+                    hit_points=hit_points.astype(np.float32, copy=False),
+                    normals=normals.astype(np.float32, copy=False),
+                    depth=depth.astype(np.float32, copy=False),
+                )
+            )
     return rendered_views
 
 

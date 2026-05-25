@@ -2644,9 +2644,15 @@ def _auto_kinematics_cache_dir(mesh_hash: str, up_dir: str) -> Path:
     return _mesh_cache_dir(mesh_hash) / "auto_kinematics"
 
 
+def _auto_kinematics_cache_complete_path(cache_dir: Path) -> Path:
+    return cache_dir / "cache_complete.json"
+
+
 def _cached_auto_kinematics(
     cache_dir: Path,
 ) -> tuple[str, str, list[tuple[str, str]]] | None:
+    if not _auto_kinematics_cache_complete_path(cache_dir).exists():
+        return None
     tree_path = cache_dir / "demo_kinematic_tree.json"
     prompt_path = cache_dir / "demo_point_prompts.json"
     renders_dir = cache_dir / "renders"
@@ -2677,6 +2683,35 @@ def _store_auto_kinematics_cache(source_dir: Path, cache_dir: Path) -> None:
         shutil.rmtree(temp_dir)
     temp_dir.parent.mkdir(parents=True, exist_ok=True)
     shutil.copytree(source_dir, temp_dir)
+    tree_path = temp_dir / "demo_kinematic_tree.json"
+    prompt_path = temp_dir / "demo_point_prompts.json"
+    renders_dir = temp_dir / "renders"
+    render_paths = sorted(renders_dir.glob("view_*.png")) if renders_dir.exists() else []
+    missing_items: list[str] = []
+    if not tree_path.exists():
+        missing_items.append(str(tree_path.name))
+    if not prompt_path.exists():
+        missing_items.append(str(prompt_path.name))
+    if len(render_paths) == 0:
+        missing_items.append("renders/view_*.png")
+    if missing_items:
+        shutil.rmtree(temp_dir)
+        raise FileNotFoundError(
+            "Auto-kinematics output is incomplete; missing "
+            + ", ".join(missing_items)
+        )
+    _auto_kinematics_cache_complete_path(temp_dir).write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "created_at": datetime.now().isoformat(timespec="seconds"),
+                "render_count": len(render_paths),
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
     if cache_dir.exists():
         shutil.rmtree(cache_dir)
     temp_dir.rename(cache_dir)
@@ -3383,6 +3418,14 @@ def _prefetch_startup_assets(config: dict[str, Any]) -> None:
     _prefetch_clip_text_assets(config)
 
 
+def _preload_weights_enabled() -> bool:
+    return os.environ.get("INSTRUCT_PARTICULATE_PRELOAD_WEIGHTS", "1").strip().lower() not in {
+        "0",
+        "false",
+        "no",
+    }
+
+
 def _spaces_gpu(fn):
     if spaces is None:
         return fn
@@ -3413,24 +3456,72 @@ class InstructParticulateApp:
         self.device: torch.device | None = None
         self.model: Particulate2ArticulationModel | None = None
         self._model_lock = threading.Lock()
+        if _preload_weights_enabled():
+            self._preload_model_weights_on_cpu()
+        else:
+            print("Skipping startup weight preload because INSTRUCT_PARTICULATE_PRELOAD_WEIGHTS is disabled")
+
+    def _uses_partfield_features(self) -> bool:
+        model_config = self.config.get("model", {})
+        if not isinstance(model_config, dict):
+            return False
+        return any(
+            bool(model_config.get(key, False))
+            for key in (
+                "use_pretrained_features_shape",
+                "use_pretrained_features_query",
+                "use_pretrained_features_point_prompt",
+            )
+        )
+
+    def _load_model_weights_on_cpu_unlocked(self) -> None:
+        cpu_device = torch.device("cpu")
+        print("Loading Instruct Particulate model weights on CPU")
+        model = Particulate2ArticulationModel(**self.config["model"])
+        load_model_checkpoint_for_inference(
+            model,
+            self.checkpoint_path,
+            device=cpu_device,
+        )
+        if model.encoder.use_text_conditioning:
+            model.encoder.compute_link_text_embeddings_on_the_fly = True
+            print("Loading CLIP text encoder weights on CPU")
+            model.encoder._ensure_text_model_loaded()
+        if self._uses_partfield_features():
+            print("Loading PartField model weights on CPU")
+            model.encoder._get_partfield_feature_extractor()._get_model(cpu_device)
+        self.model = model
+        self.device = cpu_device
+
+    def _preload_model_weights_on_cpu(self) -> None:
+        if self.model is not None:
+            return
+        with self._model_lock:
+            if self.model is not None:
+                return
+            self._load_model_weights_on_cpu_unlocked()
 
     def _ensure_model_loaded(self) -> tuple[Particulate2ArticulationModel, torch.device]:
-        if self.model is not None and self.device is not None:
+        if self.model is not None and self.device is not None and self.device.type == "cuda":
             return self.model, self.device
         with self._model_lock:
-            if self.model is not None and self.device is not None:
+            if self.model is None:
+                self._load_model_weights_on_cpu_unlocked()
+            if self.model is not None and self.device is not None and self.device.type == "cuda":
                 return self.model, self.device
             if not torch.cuda.is_available():
                 raise RuntimeError("CUDA is required for this demo but is not available.")
             device = torch.device("cuda")
-            model = Particulate2ArticulationModel(**self.config["model"])
-            load_model_checkpoint_for_inference(
-                model,
-                self.checkpoint_path,
-                device=device,
-            )
+            model = self.model
+            if model is None:
+                raise RuntimeError("Model weights were not loaded.")
+            print("Moving preloaded model weights to CUDA")
+            model.to(device=device)
             if model.encoder.use_text_conditioning:
                 model.encoder.compute_link_text_embeddings_on_the_fly = True
+            partfield_extractor = model.encoder._partfield_feature_extractor
+            if partfield_extractor is not None:
+                partfield_extractor._get_model(device)
             self.model = model
             self.device = device
             return model, device

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import os
 import shutil
@@ -16,6 +17,25 @@ import gradio as gr
 import numpy as np
 import torch
 import torch.nn.functional as F
+
+
+def _suppress_asyncio_invalid_fd_finalizer_noise() -> None:
+    original_del = getattr(asyncio.base_events.BaseEventLoop, "__del__", None)
+    if original_del is None or getattr(original_del, "_instruct_particulate_patched", False):
+        return
+
+    def quiet_del(self):
+        try:
+            original_del(self)
+        except ValueError as exc:
+            if "Invalid file descriptor" not in str(exc):
+                raise
+
+    quiet_del._instruct_particulate_patched = True
+    asyncio.base_events.BaseEventLoop.__del__ = quiet_del
+
+
+_suppress_asyncio_invalid_fd_finalizer_noise()
 
 try:
     import spaces

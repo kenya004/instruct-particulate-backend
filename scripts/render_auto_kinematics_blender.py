@@ -48,12 +48,15 @@ else:  # pragma: no cover - used only in non-Blender unit tests
 
 def orient_saved_raster_payload(buffer: np.ndarray) -> np.ndarray:
     """Match the final saved image orientation for per-pixel render payloads."""
-    return np.asarray(buffer).copy()
+    oriented = np.flip(np.flip(np.asarray(buffer), axis=0), axis=1)
+    return oriented.copy()
 
 
 def orient_saved_render_image(image: Image.Image) -> Image.Image:
     """Apply the same output-space transform as the saved raster payloads."""
-    return image.copy()
+    oriented = image.transpose(Image.FLIP_TOP_BOTTOM)
+    oriented = oriented.transpose(Image.FLIP_LEFT_RIGHT)
+    return oriented
 
 
 def parse_args() -> argparse.Namespace:

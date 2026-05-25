@@ -128,7 +128,12 @@ def init_render(*, engine: str, resolution: int, samples: int) -> None:
         scene.cycles.transmission_bounces = 8
         scene.cycles.use_denoising = True
         if hasattr(scene.cycles, "denoiser"):
-            scene.cycles.denoiser = "OPENIMAGEDENOISE"
+            for denoiser in ("OPENIMAGEDENOISE", "OPTIX", "NLM"):
+                try:
+                    scene.cycles.denoiser = denoiser
+                    break
+                except TypeError:
+                    continue
         try:
             prefs = bpy.context.preferences.addons["cycles"].preferences
             prefs.get_devices()

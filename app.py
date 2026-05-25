@@ -2583,7 +2583,8 @@ def _ensure_instruct_checkpoint(checkpoint_path: Path) -> Path:
 def _spaces_gpu(fn):
     if spaces is None:
         return fn
-    return spaces.GPU(duration=1800)(fn)
+    duration = min(int(os.environ.get("SPACES_GPU_DURATION", "120")), 120)
+    return spaces.GPU(duration=duration)(fn)
 
 
 class InstructParticulateApp:

@@ -135,14 +135,10 @@ def init_render(*, engine: str, resolution: int, samples: int) -> None:
         scene.cycles.glossy_bounces = 1
         scene.cycles.transparent_max_bounces = 8
         scene.cycles.transmission_bounces = 8
-        scene.cycles.use_denoising = True
-        if hasattr(scene.cycles, "denoiser"):
-            for denoiser in ("OPENIMAGEDENOISE", "OPTIX", "NLM"):
-                try:
-                    scene.cycles.denoiser = denoiser
-                    break
-                except TypeError:
-                    continue
+        # The Blender build available on HF Spaces is compiled without
+        # OpenImageDenoise. Enabling Cycles denoising makes rendering abort
+        # with "Build without OpenImageDenoiser", so keep it off here.
+        scene.cycles.use_denoising = False
         try:
             prefs = bpy.context.preferences.addons["cycles"].preferences
             prefs.get_devices()

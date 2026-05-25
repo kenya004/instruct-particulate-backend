@@ -181,7 +181,7 @@ def init_lighting() -> None:
         if direction.length == 0:
             return
         direction.normalize()
-        up = Vector((0.0, 0.0, -1.0))
+        up = Vector((0.0, 0.0, 1.0))
         if abs(direction.dot(up)) > 0.999:
             up = Vector((0.0, 1.0, 0.0))
         right = direction.cross(up)
@@ -204,20 +204,19 @@ def init_lighting() -> None:
     )
     bpy.context.collection.objects.link(top_light)
     top_light.data.energy = 1500
-    top_light.location = (0.0, 0.0, -8.0)
+    top_light.location = (0.0, 0.0, 8.0)
     top_light.data.size = 3.0
-    top_light.rotation_mode = "XYZ"
-    top_light.rotation_euler = (0.0, 0.0, 0.0)
+    look_at_origin(top_light)
 
     light_distance = 5.0
     light_height = 3.0
     light_energy_base = 1200.0
     light_size = 2.0
     side_specs = (
-        ("Light_X_Pos", (light_distance, 0.0, -light_height), light_energy_base * 0.6),
-        ("Light_X_Neg", (-light_distance, 0.0, -light_height), light_energy_base * 1.4),
-        ("Light_Y_Pos", (0.0, light_distance, -light_height), light_energy_base),
-        ("Light_Y_Neg", (0.0, -light_distance, -light_height), light_energy_base),
+        ("Light_X_Pos", (light_distance, 0.0, light_height), light_energy_base * 0.6),
+        ("Light_X_Neg", (-light_distance, 0.0, light_height), light_energy_base * 1.4),
+        ("Light_Y_Pos", (0.0, light_distance, light_height), light_energy_base),
+        ("Light_Y_Neg", (0.0, -light_distance, light_height), light_energy_base),
     )
     for name, location, energy in side_specs:
         light = bpy.data.objects.new(name, bpy.data.lights.new(name, type="AREA"))

@@ -350,6 +350,7 @@ DEMO_CSS = """
   pointer-events: none;
 }
 .outputs-panel {
+  container-type: inline-size;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -368,25 +369,42 @@ DEMO_CSS = """
   gap: 8px !important;
 }
 .output-triplet-row {
-  flex: 0 0 430px;
+  --output-tile-size: min(400px, calc((100cqw - 20px) / 3));
+  flex: 0 0 calc(var(--output-tile-size) + 34px);
   min-height: 0;
-  max-height: 430px;
+  max-height: calc(var(--output-tile-size) + 34px);
+  align-items: flex-start !important;
 }
 .output-triplet-row > .form,
 .output-triplet-row > div {
   min-height: 0;
+  min-width: 0;
+  flex: 1 1 0 !important;
 }
 .capped-output {
-  max-height: 430px;
+  height: calc(var(--output-tile-size) + 34px) !important;
+  max-height: calc(var(--output-tile-size) + 34px) !important;
   overflow: hidden;
 }
+.capped-output .image-container,
+.capped-output .image-frame,
+.capped-output .model3d-container {
+  width: 100% !important;
+  height: var(--output-tile-size) !important;
+  aspect-ratio: 1 / 1 !important;
+}
 .capped-output img {
-  max-height: 390px !important;
+  width: 100% !important;
+  height: 100% !important;
+  max-height: none !important;
   object-fit: contain !important;
 }
 .capped-output model-viewer,
 .capped-output canvas {
-  max-height: 390px !important;
+  width: 100% !important;
+  height: var(--output-tile-size) !important;
+  max-height: none !important;
+  aspect-ratio: 1 / 1 !important;
 }
 .compact-status {
   flex: 0 0 auto !important;
@@ -2732,6 +2750,9 @@ class InstructParticulateApp:
                 "",
                 *empty_orientation_previews,
                 "",
+                None,
+                gr.update(interactive=False),
+                gr.update(value=None, interactive=False),
             )
             return
         try:
@@ -2743,6 +2764,9 @@ class InstructParticulateApp:
                 "",
                 *empty_orientation_previews,
                 "",
+                None,
+                gr.update(interactive=False),
+                gr.update(value=None, interactive=False),
             )
             return
 
@@ -2753,6 +2777,9 @@ class InstructParticulateApp:
             "",
             *rendering_orientation_previews,
             "",
+            None,
+            gr.update(interactive=False),
+            gr.update(value=None, interactive=False),
         )
 
         try:
@@ -2764,6 +2791,9 @@ class InstructParticulateApp:
                 "",
                 *rendering_orientation_previews,
                 "",
+                None,
+                gr.update(interactive=False),
+                gr.update(value=None, interactive=False),
             )
             return
 
@@ -2773,6 +2803,9 @@ class InstructParticulateApp:
             prompt_mesh_data,
             *rendering_orientation_previews,
             "",
+            None,
+            gr.update(interactive=False),
+            gr.update(value=None, interactive=False),
         )
 
         try:
@@ -2788,6 +2821,9 @@ class InstructParticulateApp:
                 prompt_mesh_data,
                 *empty_orientation_previews,
                 "",
+                None,
+                gr.update(interactive=False),
+                gr.update(value=None, interactive=False),
             )
             return
 
@@ -2797,6 +2833,9 @@ class InstructParticulateApp:
             prompt_mesh_data,
             *_upright_preview_paths(upright_previews),
             "",
+            None,
+            gr.update(interactive=False),
+            gr.update(value=None, interactive=False),
         )
 
     def extract_kinematic_structure(
@@ -2952,10 +2991,18 @@ class InstructParticulateApp:
     ):
         mesh_path = _extract_gradio_path(mesh_path_value)
         if mesh_path is None:
-            yield None, None, None, None, None, "Upload a mesh first."
+            yield None, None, None, None, None, "Upload a mesh first.", gr.update(interactive=False)
             return
         if not mesh_path.exists():
-            yield None, None, None, None, None, f"Mesh file does not exist: {mesh_path}"
+            yield (
+                None,
+                None,
+                None,
+                None,
+                None,
+                f"Mesh file does not exist: {mesh_path}",
+                gr.update(interactive=False),
+            )
             return
         if not up_dir:
             yield (
@@ -2965,6 +3012,7 @@ class InstructParticulateApp:
                 None,
                 None,
                 "Select the upright orientation image before running inference.",
+                gr.update(interactive=False),
             )
             return
 
@@ -2980,7 +3028,15 @@ class InstructParticulateApp:
                 point_prompt_arrays,
             )
             if duplicate_prompt_warning is not None:
-                yield None, None, None, None, None, duplicate_prompt_warning
+                yield (
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    duplicate_prompt_warning,
+                    gr.update(interactive=False),
+                )
                 return
             canonical_up = canonicalize_up_dir(up_dir)
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -3105,6 +3161,7 @@ class InstructParticulateApp:
                 None,
                 None,
                 "Point query visualization ready. Running face postprocessing and articulation export...",
+                gr.update(interactive=False),
             )
 
             face_part_ids, face_part_ids_unrefined = _decode_face_part_ids(
@@ -3157,6 +3214,7 @@ class InstructParticulateApp:
                 str(zip_path),
                 str(output_dir),
                 f"Success using input up direction {canonical_up}. Wrote outputs to {output_dir}",
+                gr.update(interactive=True),
             )
         except Exception as exc:
             traceback.print_exc()
@@ -3170,6 +3228,7 @@ class InstructParticulateApp:
                 None,
                 None,
                 f"Error: {exc}",
+                gr.update(interactive=False),
             )
         finally:
             torch.cuda.empty_cache()
@@ -3479,6 +3538,15 @@ def run_predict_on_gpu(
     )
 
 
+def prepare_inference_ui():
+    return (
+        None,
+        gr.update(interactive=False),
+        gr.update(value=None, interactive=False),
+        "Running inference...",
+    )
+
+
 def _example_meshes() -> list[list[str]]:
     examples_dir = REPO_ROOT / "examples"
     if not examples_dir.exists():
@@ -3717,24 +3785,6 @@ def create_gradio_app(app: InstructParticulateApp) -> gr.Blocks:
                                 preview_image.buttons = []
                                 upright_preview_images.append(preview_image)
 
-                if examples and examples_container is not None:
-                    with examples_container:
-                        gr.Examples(
-                            examples=examples,
-                            inputs=[input_mesh],
-                            outputs=[
-                                loaded_mesh_path,
-                                mesh_status,
-                                point_prompt_mesh_data,
-                                *upright_preview_images,
-                                selected_up_dir,
-                            ],
-                            fn=app.register_mesh,
-                            run_on_click=True,
-                            cache_examples=False,
-                            label="Examples",
-                        )
-
             with gr.Column(scale=2, elem_classes=["demo-panel", "outputs-panel"]):
                 with gr.Row(equal_height=True, elem_classes=["output-triplet-row"]):
                     query_visualization = gr.Image(
@@ -3761,7 +3811,7 @@ def create_gradio_app(app: InstructParticulateApp) -> gr.Blocks:
                     elem_classes=["kinematic-json-sync"],
                 )
                 with gr.Row(elem_classes=["urdf-export-row"]):
-                    export_urdf_button = gr.Button("Export URDF")
+                    export_urdf_button = gr.Button("Export URDF", interactive=False)
                     urdf_zip = gr.DownloadButton(
                         "Download URDF ZIP",
                         value=None,
@@ -3781,6 +3831,27 @@ def create_gradio_app(app: InstructParticulateApp) -> gr.Blocks:
                     elem_classes=["compact-status"],
                 )
 
+        if examples and examples_container is not None:
+            with examples_container:
+                gr.Examples(
+                    examples=examples,
+                    inputs=[input_mesh],
+                    outputs=[
+                        loaded_mesh_path,
+                        mesh_status,
+                        point_prompt_mesh_data,
+                        *upright_preview_images,
+                        selected_up_dir,
+                        latest_output_dir,
+                        export_urdf_button,
+                        urdf_zip,
+                    ],
+                    fn=app.register_mesh,
+                    run_on_click=True,
+                    cache_examples=False,
+                    label="Examples",
+                )
+
         input_mesh.change(
             fn=app.register_mesh,
             inputs=[input_mesh],
@@ -3790,6 +3861,9 @@ def create_gradio_app(app: InstructParticulateApp) -> gr.Blocks:
                 point_prompt_mesh_data,
                 *upright_preview_images,
                 selected_up_dir,
+                latest_output_dir,
+                export_urdf_button,
+                urdf_zip,
             ],
         )
         extract_button.click(
@@ -3807,7 +3881,18 @@ def create_gradio_app(app: InstructParticulateApp) -> gr.Blocks:
                 auto_status,
             ],
         )
-        run_button.click(
+        run_event = run_button.click(
+            fn=prepare_inference_ui,
+            inputs=None,
+            outputs=[
+                latest_output_dir,
+                export_urdf_button,
+                urdf_zip,
+                status,
+            ],
+            queue=False,
+        )
+        run_event.then(
             fn=run_predict_on_gpu,
             inputs=[
                 input_mesh,
@@ -3829,6 +3914,7 @@ def create_gradio_app(app: InstructParticulateApp) -> gr.Blocks:
                 output_zip,
                 latest_output_dir,
                 status,
+                export_urdf_button,
             ],
         )
         export_urdf_button.click(

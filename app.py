@@ -82,7 +82,9 @@ CHECKPOINT_REPO_FILENAME = os.environ.get(
     "INSTRUCT_PARTICULATE_CHECKPOINT_REPO_FILENAME",
     "step_0080000.pt",
 )
-OUTPUT_ROOT = REPO_ROOT / "gradio_output"
+OUTPUT_ROOT = Path(
+    os.environ.get("INSTRUCT_PARTICULATE_OUTPUT_ROOT", str(REPO_ROOT / "data"))
+)
 UP_DIR_CHOICES = ["+X", "-X", "+Y", "-Y", "+Z", "-Z"]
 AUTO_KINEMATICS_MODEL_ID = "gemini-3.5-flash"
 AUTO_KINEMATICS_REASONING_EFFORT = "medium"
@@ -3709,5 +3711,5 @@ if __name__ == "__main__":
         server_name="0.0.0.0",
         server_port=port,
         share=share,
-        allowed_paths=[str(OUTPUT_ROOT.resolve())],
+        allowed_paths=[str(demo_app.output_root.resolve())],
     )

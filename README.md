@@ -14,6 +14,9 @@ This repository contains a self-contained Gradio demo for the
 `FINAL-ours-final_2026-05-01T12-36-12` Instruct Particulate checkpoint.
 On Hugging Face Spaces, the large model checkpoint is downloaded at startup
 from `rayli/instruct-particulate-model`.
+Runtime outputs are written under `./data` by default so the Space can use its
+mounted persistent bucket. Set `INSTRUCT_PARTICULATE_OUTPUT_ROOT` to override
+that location.
 
 Run:
 

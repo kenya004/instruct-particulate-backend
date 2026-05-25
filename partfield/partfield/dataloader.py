@@ -15,37 +15,16 @@ import gc
 from plyfile import PlyData
 
 ## For remeshing
-try:
-    import mesh2sdf
-except ImportError:
-    mesh2sdf = None
-try:
-    import tetgen
-except ImportError:
-    tetgen = None
-try:
-    import vtk
-except ImportError:
-    vtk = None
+import mesh2sdf
+import tetgen
+import vtk
 import math
 import tempfile
 
 ### For mesh processing
-try:
-    import pymeshlab
-except ImportError:
-    pymeshlab = None
+import pymeshlab
 
 from partfield.utils import *
-
-
-def require_optional_dependency(module, name):
-    if module is None:
-        raise ImportError(
-            f"Optional PartField dependency '{name}' is required for this dataset "
-            "operation, but it is not installed."
-        )
-    return module
 
 #########################
 ## To handle quad inputs
@@ -167,7 +146,6 @@ class Demo_Dataset(torch.utils.data.Dataset):
 
             ### Pre-process mesh
             if self.preprocess_mesh:
-                require_optional_dependency(pymeshlab, "pymeshlab")
                 # Create a PyMeshLab mesh directly from vertices and faces
                 ml_mesh = pymeshlab.Mesh(vertex_matrix=mesh.vertices, face_matrix=mesh.faces)
 
@@ -266,7 +244,6 @@ class Demo_Remesh_Dataset(torch.utils.data.Dataset):
 
         ### Pre-process mesh
         if self.preprocess_mesh:
-            require_optional_dependency(pymeshlab, "pymeshlab")
             # Create a PyMeshLab mesh directly from vertices and faces
             ml_mesh = pymeshlab.Mesh(vertex_matrix=mesh.vertices, face_matrix=mesh.faces)
 
@@ -298,9 +275,6 @@ class Demo_Remesh_Dataset(torch.utils.data.Dataset):
         mesh.export(f'{save_dir}/input_{uid}_{view_id}.ply')   
 
         try:
-            require_optional_dependency(mesh2sdf, "mesh2sdf")
-            require_optional_dependency(tetgen, "tetgen")
-            require_optional_dependency(vtk, "vtk")
             ###### Remesh ######
             size= 256
             level = 2 / size

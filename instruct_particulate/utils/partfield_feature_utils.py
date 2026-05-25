@@ -97,11 +97,25 @@ class PartFieldFeatureExtractor:
             ),
             freeze=False,
         )
-        model = self._partfield_model_cls.load_from_checkpoint(
-            str(self.partfield_checkpoint_path),
-            cfg=cfg,
-            map_location="cpu",
-        )
+        saving_module = importlib.import_module("lightning.pytorch.core.saving")
+        original_pl_load = saving_module.pl_load
+
+        def trusted_checkpoint_load(path_or_url: Any, map_location: Any = None) -> Any:
+            return torch.load(
+                path_or_url,
+                map_location=map_location,
+                weights_only=False,
+            )
+
+        saving_module.pl_load = trusted_checkpoint_load
+        try:
+            model = self._partfield_model_cls.load_from_checkpoint(
+                str(self.partfield_checkpoint_path),
+                cfg=cfg,
+                map_location="cpu",
+            )
+        finally:
+            saving_module.pl_load = original_pl_load
         model.eval()
         model.requires_grad_(False)
         model.to(device=device)

@@ -2300,20 +2300,22 @@ def _render_up_direction_previews_with_blender(
     output_dir.mkdir(parents=True, exist_ok=True)
     temp_dir_manager = tempfile.TemporaryDirectory(prefix="upright_previews_")
     render_output_dir = Path(temp_dir_manager.name)
+    blender_expr = (
+        "import numpy as _np; "
+        "_np.bool = bool; "
+        "_np.int = int; "
+        "_np.float = float; "
+        "_np.complex = complex; "
+        "_np.object = object; "
+        f"_script = {str(blender_script_path)!r}; "
+        "exec(compile(open(_script, 'rb').read(), _script, 'exec'), "
+        "{'__name__': '__main__', '__file__': _script})"
+    )
     command = [
         str(blender_path),
         "-b",
         "--python-expr",
-        (
-            "import numpy as _np; "
-            "setattr(_np, 'bool', bool); "
-            "setattr(_np, 'int', int); "
-            "setattr(_np, 'float', float); "
-            "setattr(_np, 'complex', complex); "
-            "setattr(_np, 'object', object)"
-        ),
-        "-P",
-        str(blender_script_path),
+        blender_expr,
         "--",
         "--mesh-path",
         str(mesh_path),

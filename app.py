@@ -848,7 +848,7 @@ KINEMATIC_TREE_EDITOR_CSS = """
 .kin-node {
   position: absolute;
   box-sizing: border-box;
-  width: 176px;
+  width: 128px;
   height: 44px;
   border: 2px solid var(--kin-node-border);
   border-radius: 8px;
@@ -1046,7 +1046,7 @@ KINEMATIC_TREE_EDITOR_CSS = """
     visibility: visible !important;
   }
   #kin-tree-editor .kin-node {
-    width: min(176px, 46vw) !important;
+    width: min(128px, 46vw) !important;
   }
 }
 @media (max-width: 460px) {
@@ -1058,7 +1058,7 @@ KINEMATIC_TREE_EDITOR_CSS = """
     min-height: 250px !important;
   }
   #kin-tree-editor .kin-node {
-    width: min(160px, 48vw) !important;
+    width: min(128px, 48vw) !important;
   }
 }
 """
@@ -1159,7 +1159,7 @@ KINEMATIC_TREE_EDITOR_JS = r"""
     "#f9a8d4", "#a7f3d0", "#fcd34d", "#bfdbfe",
     "#ddd6fe", "#fecaca", "#bbf7d0", "#bae6fd"
   ];
-  const NODE_WIDTH = 176;
+  const NODE_WIDTH = 128;
   const NODE_HEIGHT = 44;
   const PROMPT_POINT_PRECISION = 6;
 

@@ -210,8 +210,7 @@ DEMO_CSS = """
   margin-bottom: 0 !important;
 }
 .orientation-panel > .form,
-.orientation-panel > div,
-.orientation-panel .form {
+.orientation-panel > div {
   gap: 0 !important;
 }
 .upright-picker-grid {
@@ -231,6 +230,12 @@ DEMO_CSS = """
   min-height: 0 !important;
   gap: 8px !important;
   align-items: stretch !important;
+}
+.orientation-panel .upright-picker-grid {
+  gap: 6px !important;
+}
+.orientation-panel .upright-picker-row {
+  gap: 8px !important;
 }
 .upright-picker-row > .form,
 .upright-picker-row > div {

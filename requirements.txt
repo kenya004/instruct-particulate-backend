@@ -29,3 +29,4 @@ open3d
 plyfile
 loguru
 psutil
+boto3

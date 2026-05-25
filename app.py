@@ -314,6 +314,7 @@ DEMO_CSS = """
   min-height: 0 !important;
   gap: 8px !important;
   align-items: stretch !important;
+  flex-wrap: nowrap !important;
 }
 .orientation-panel .upright-picker-grid {
   gap: 6px !important;
@@ -484,8 +485,8 @@ DEMO_CSS = """
   .kin-panel .kinematic-editor-host,
   .kin-panel .kinematic-editor-host > div,
   #kinematic_tree_editor_html {
-    min-height: clamp(360px, 58vw, 520px) !important;
-    height: clamp(360px, 58vw, 520px) !important;
+    min-height: clamp(440px, 72vw, 580px) !important;
+    height: clamp(440px, 72vw, 580px) !important;
   }
   .prompt-panel #point-prompt-picker {
     flex: 0 0 clamp(360px, 58vw, 500px) !important;
@@ -517,12 +518,12 @@ DEMO_CSS = """
     gap: 10px !important;
   }
   .upright-picker-row {
-    flex-wrap: wrap !important;
+    flex-wrap: nowrap !important;
   }
   .upright-picker-row > .form,
   .upright-picker-row > div {
-    flex: 1 1 calc(50% - 8px) !important;
-    min-width: 140px !important;
+    flex: 1 1 0 !important;
+    min-width: 0 !important;
   }
   .output-triplet-row {
     --output-tile-size: min(360px, 92vw);
@@ -535,7 +536,14 @@ DEMO_CSS = """
 @media (max-width: 460px) {
   .upright-picker-row > .form,
   .upright-picker-row > div {
-    flex-basis: 100% !important;
+    flex: 1 1 0 !important;
+    min-width: 0 !important;
+  }
+  .upright-option-image::after {
+    top: 5px;
+    left: 5px;
+    font-size: 10px;
+    padding: 4px 5px;
   }
   .kin-tree-toolbar,
   .prompt-picker-toolbar {
@@ -973,6 +981,48 @@ KINEMATIC_TREE_EDITOR_CSS = """
   box-shadow:
     0 8px 18px var(--kin-node-shadow),
     0 0 0 3px rgba(34, 197, 94, 0.78);
+}
+@media (max-width: 1099px) {
+  #kin-tree-editor.kin-tree-panel {
+    display: flex !important;
+    flex: 0 0 auto !important;
+    min-height: clamp(440px, 72vw, 580px) !important;
+    height: clamp(440px, 72vw, 580px) !important;
+    max-height: none !important;
+    overflow: hidden !important;
+    opacity: 1 !important;
+    visibility: visible !important;
+  }
+  #kin-tree-editor .kin-tree-canvas {
+    display: block !important;
+    flex: 1 1 auto !important;
+    min-height: clamp(260px, 48vw, 420px) !important;
+    height: auto !important;
+    opacity: 1 !important;
+    visibility: visible !important;
+  }
+  #kin-tree-editor .kin-tree-edge-layer,
+  #kin-tree-editor .kin-tree-joint-layer,
+  #kin-tree-editor .kin-tree-node-layer {
+    display: block !important;
+    opacity: 1 !important;
+    visibility: visible !important;
+  }
+  #kin-tree-editor .kin-node {
+    width: min(176px, 46vw) !important;
+  }
+}
+@media (max-width: 460px) {
+  #kin-tree-editor.kin-tree-panel {
+    min-height: 440px !important;
+    height: 440px !important;
+  }
+  #kin-tree-editor .kin-tree-canvas {
+    min-height: 250px !important;
+  }
+  #kin-tree-editor .kin-node {
+    width: min(160px, 48vw) !important;
+  }
 }
 """
 

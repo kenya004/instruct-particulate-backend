@@ -488,10 +488,26 @@ DEMO_CSS = """
 }
 .compact-status {
   flex: 0 0 auto !important;
+  min-height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  background: transparent !important;
+  border: 0 !important;
+  color: var(--demo-muted) !important;
 }
-.compact-status textarea {
-  min-height: 38px !important;
-  max-height: 52px !important;
+.compact-status > div,
+.compact-status .prose,
+.compact-status p {
+  min-height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  background: transparent !important;
+  border: 0 !important;
+}
+.compact-status p {
+  color: var(--demo-muted) !important;
+  font-size: 13px !important;
+  line-height: 1.3 !important;
 }
 @media (max-width: 1099px) {
   .demo-top-row,
@@ -4214,11 +4230,10 @@ def create_gradio_app(app: InstructParticulateApp) -> gr.Blocks:
                     visible=False,
                     elem_classes=["kinematic-json-sync"],
                 )
-                status = gr.Textbox(
-                    label="Status",
-                    interactive=False,
-                    lines=1,
-                    max_lines=2,
+                status = gr.Markdown(
+                    value="",
+                    show_label=False,
+                    container=False,
                     elem_classes=["compact-status"],
                 )
 

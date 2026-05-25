@@ -2298,6 +2298,8 @@ def _render_up_direction_previews_with_blender(
     if not blender_script_path.exists():
         raise FileNotFoundError(f"Upright preview Blender script is missing: {blender_script_path}")
     output_dir.mkdir(parents=True, exist_ok=True)
+    temp_dir_manager = tempfile.TemporaryDirectory(prefix="upright_previews_")
+    render_output_dir = Path(temp_dir_manager.name)
     command = [
         str(blender_path),
         "-b",
@@ -2307,35 +2309,44 @@ def _render_up_direction_previews_with_blender(
         "--mesh-path",
         str(mesh_path),
         "--output-dir",
-        str(output_dir),
+        str(render_output_dir),
         "--resolution",
         "384",
         "--up-dirs",
         ",".join(UP_DIR_CHOICES),
     ]
-    result = subprocess.run(
-        command,
-        check=False,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-    )
-    if result.returncode != 0:
-        if result.stdout:
-            print(result.stdout)
-        raise subprocess.CalledProcessError(
-            result.returncode,
+    try:
+        result = subprocess.run(
             command,
-            output=result.stdout,
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
         )
+        if result.returncode != 0:
+            if result.stdout:
+                print(result.stdout)
+            raise subprocess.CalledProcessError(
+                result.returncode,
+                command,
+                output=result.stdout,
+            )
 
-    gallery_items: list[tuple[str, str]] = []
-    for up_dir in UP_DIR_CHOICES:
-        output_path = output_dir / f"up_{_up_dir_slug(up_dir)}.png"
-        if not output_path.exists() or output_path.stat().st_size <= 0:
-            raise FileNotFoundError(f"Blender did not write upright preview: {output_path}")
-        gallery_items.append((str(output_path), f"{up_dir} up"))
-    return gallery_items
+        gallery_items: list[tuple[str, str]] = []
+        for up_dir in UP_DIR_CHOICES:
+            temp_output_path = render_output_dir / f"up_{_up_dir_slug(up_dir)}.png"
+            output_path = output_dir / temp_output_path.name
+            if not temp_output_path.exists() or temp_output_path.stat().st_size <= 0:
+                stdout_tail = "\n".join((result.stdout or "").splitlines()[-40:])
+                raise FileNotFoundError(
+                    "Blender did not write upright preview: "
+                    f"{temp_output_path}\nBlender output:\n{stdout_tail}"
+                )
+            shutil.copy2(temp_output_path, output_path)
+            gallery_items.append((str(output_path), f"{up_dir} up"))
+        return gallery_items
+    finally:
+        temp_dir_manager.cleanup()
 
 
 def _load_point_prompt_payload(raw_value: str | None) -> dict[str, Any]:
@@ -2848,7 +2859,6 @@ class InstructParticulateApp:
         finally:
             torch.cuda.empty_cache()
 
-    @_spaces_gpu
     def predict(
         self,
         mesh_path_value: Any,
@@ -3353,6 +3363,45 @@ class InstructParticulateApp:
         )
 
 
+_ACTIVE_APP: InstructParticulateApp | None = None
+
+
+def _get_active_app() -> InstructParticulateApp:
+    global _ACTIVE_APP
+    if _ACTIVE_APP is None:
+        _ACTIVE_APP = InstructParticulateApp()
+    return _ACTIVE_APP
+
+
+@_spaces_gpu
+def run_predict_on_gpu(
+    mesh_path_value: Any,
+    kinematic_tree_json: str,
+    point_prompt_json: str,
+    up_dir: str,
+    num_query_points: int,
+    num_query_points_per_face_for_seg: int,
+    query_batch_size: int,
+    animation_frames: int,
+    strict_face_postprocess: bool,
+    enforce_connectivity_per_part: bool,
+    joint_decoding_confidence_temperature: float,
+):
+    yield from _get_active_app().predict(
+        mesh_path_value,
+        kinematic_tree_json,
+        point_prompt_json,
+        up_dir,
+        num_query_points,
+        num_query_points_per_face_for_seg,
+        query_batch_size,
+        animation_frames,
+        strict_face_postprocess,
+        enforce_connectivity_per_part,
+        joint_decoding_confidence_temperature,
+    )
+
+
 def _example_meshes() -> list[list[str]]:
     examples_dir = REPO_ROOT / "examples"
     if not examples_dir.exists():
@@ -3431,6 +3480,8 @@ def _point_prompt_picker_html() -> str:
 
 
 def create_gradio_app(app: InstructParticulateApp) -> gr.Blocks:
+    global _ACTIVE_APP
+    _ACTIVE_APP = app
     with gr.Blocks(title="Instruct Particulate Demo") as demo:
         gr.HTML(
             f"""
@@ -3667,7 +3718,7 @@ def create_gradio_app(app: InstructParticulateApp) -> gr.Blocks:
             ],
         )
         run_button.click(
-            fn=app.predict,
+            fn=run_predict_on_gpu,
             inputs=[
                 input_mesh,
                 kinematic_tree,

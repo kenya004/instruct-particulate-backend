@@ -2303,6 +2303,15 @@ def _render_up_direction_previews_with_blender(
     command = [
         str(blender_path),
         "-b",
+        "--python-expr",
+        (
+            "import numpy as _np; "
+            "setattr(_np, 'bool', bool); "
+            "setattr(_np, 'int', int); "
+            "setattr(_np, 'float', float); "
+            "setattr(_np, 'complex', complex); "
+            "setattr(_np, 'object', object)"
+        ),
         "-P",
         str(blender_script_path),
         "--",

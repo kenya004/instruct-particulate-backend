@@ -215,14 +215,39 @@ DEMO_CSS = """
   flex-direction: column;
   gap: 0 !important;
 }
-.orientation-panel .markdown {
+.orientation-panel .markdown,
+.upright-instruction-block,
+.upright-instructions {
   flex: 0 0 auto !important;
   margin: 0 !important;
+  padding: 0 !important;
   padding-bottom: 0 !important;
+  min-height: 0 !important;
+  height: auto !important;
+}
+.upright-instruction-block > div,
+.upright-instruction-block .html-container {
+  margin: 0 !important;
+  padding: 0 !important;
+  min-height: 0 !important;
+  height: auto !important;
 }
 .orientation-panel .markdown h3,
-.orientation-panel .markdown p {
+.orientation-panel .markdown p,
+.upright-instructions h3,
+.upright-instructions p {
   margin-bottom: 0 !important;
+}
+.upright-instructions h3 {
+  margin-top: 0 !important;
+  font-size: 18px;
+  line-height: 1.2;
+}
+.upright-instructions p {
+  margin-top: 3px !important;
+  color: #111827 !important;
+  font-size: 14px;
+  line-height: 1.35;
 }
 .orientation-panel > .form,
 .orientation-panel > div {
@@ -3663,10 +3688,17 @@ def create_gradio_app(app: InstructParticulateApp) -> gr.Blocks:
 
         with gr.Row(equal_height=True, elem_classes=["demo-row", "demo-bottom-row"]):
             with gr.Column(scale=1, elem_classes=["demo-panel", "orientation-panel"]):
-                gr.Markdown(
-                    "### Upright Orientation\n"
-                    "After uploading or selecting a mesh, click the preview where the object is upright. "
-                    "That choice is used for both kinematic extraction and inference."
+                gr.HTML(
+                    """
+                    <div class="upright-instructions">
+                      <h3>Upright Orientation</h3>
+                      <p>After uploading or selecting a mesh, click the preview where the object is upright. That choice is used for both kinematic extraction and inference.</p>
+                    </div>
+                    """,
+                    elem_classes=["upright-instruction-block"],
+                    min_height=0,
+                    container=False,
+                    padding=False,
                 )
                 upright_preview_images: list[gr.Image] = []
                 with gr.Column(elem_classes=["upright-picker-grid"]):

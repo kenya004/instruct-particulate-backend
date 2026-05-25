@@ -89,6 +89,9 @@ from instruct_particulate.utils.inference_utils import (
 from instruct_particulate.utils.inference_visualization_utils import (
     save_predicted_point_query_rest_visualization,
 )
+from instruct_particulate.utils.partfield_feature_utils import (
+    ensure_partfield_assets_downloaded,
+)
 
 
 REPO_ROOT = Path(__file__).resolve().parent
@@ -3164,6 +3167,7 @@ def _ensure_instruct_checkpoint(checkpoint_path: Path) -> Path:
         filename=CHECKPOINT_REPO_FILENAME,
         local_dir=str(checkpoint_path.parent),
         local_dir_use_symlinks=False,
+        token=os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_HUB_TOKEN"),
     )
     downloaded_path = Path(downloaded_path)
     if downloaded_path != checkpoint_path:
@@ -3171,6 +3175,68 @@ def _ensure_instruct_checkpoint(checkpoint_path: Path) -> Path:
     if not checkpoint_path.exists():
         raise FileNotFoundError(f"Could not download checkpoint to {checkpoint_path}")
     return checkpoint_path
+
+
+def _hf_token() -> str | None:
+    return os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_HUB_TOKEN")
+
+
+def _prefetch_clip_text_assets(config: dict[str, Any]) -> None:
+    model_config = config.get("model", {})
+    if not isinstance(model_config, dict) or not bool(model_config.get("use_text_conditioning", True)):
+        return
+
+    clip_model_name = str(model_config.get("clip_model_name", "openai/clip-vit-large-patch14"))
+    print(f"Prefetching CLIP text assets: {clip_model_name}")
+    try:
+        from huggingface_hub import snapshot_download
+    except ImportError as exc:
+        raise ImportError("huggingface_hub is required to prefetch CLIP assets") from exc
+
+    snapshot_download(
+        repo_id=clip_model_name,
+        cache_dir=os.environ.get("HF_HOME") or None,
+        allow_patterns=[
+            "config.json",
+            "tokenizer_config.json",
+            "vocab.json",
+            "merges.txt",
+            "tokenizer.json",
+            "special_tokens_map.json",
+            "model.safetensors",
+        ],
+        token=_hf_token(),
+    )
+
+
+def _prefetch_partfield_assets(config: dict[str, Any]) -> None:
+    model_config = config.get("model", {})
+    if not isinstance(model_config, dict):
+        return
+    needs_partfield = any(
+        bool(model_config.get(key, False))
+        for key in (
+            "use_pretrained_features_shape",
+            "use_pretrained_features_query",
+            "use_pretrained_features_point_prompt",
+        )
+    )
+    if not needs_partfield:
+        return
+    print("Prefetching PartField checkpoint assets")
+    ensure_partfield_assets_downloaded()
+
+
+def _prefetch_startup_assets(config: dict[str, Any]) -> None:
+    if os.environ.get("INSTRUCT_PARTICULATE_PREFETCH_ASSETS", "1").strip().lower() in {
+        "0",
+        "false",
+        "no",
+    }:
+        print("Skipping startup asset prefetch because INSTRUCT_PARTICULATE_PREFETCH_ASSETS is disabled")
+        return
+    _prefetch_partfield_assets(config)
+    _prefetch_clip_text_assets(config)
 
 
 def _spaces_gpu(fn):
@@ -3196,6 +3262,7 @@ class InstructParticulateApp:
         self.checkpoint_path = _ensure_instruct_checkpoint(self.checkpoint_path)
         self.config = load_run_config(self.run_dir)
         configure_runtime_environment(self.config)
+        _prefetch_startup_assets(self.config)
         self.num_shape_points, self.default_num_query_points, self.sharp_point_ratio = (
             resolve_inference_sampling_config(self.config)
         )

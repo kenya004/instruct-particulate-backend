@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import importlib
+import os
 import sys
 from contextlib import nullcontext
 from pathlib import Path
@@ -45,6 +46,7 @@ def _ensure_partfield_checkpoint(checkpoint_path: Path) -> Path:
             filename=_PARTFIELD_CHECKPOINT_FILENAME,
             local_dir=str(checkpoint_path.parent),
             local_dir_use_symlinks=False,
+            token=os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_HUB_TOKEN"),
         )
     except ImportError:
         pass
@@ -59,6 +61,12 @@ def _resolve_partfield_config_path() -> Path:
     if not _PARTFIELD_CONFIG_PATH.exists():
         raise FileNotFoundError(f"Could not find PartField config: {_PARTFIELD_CONFIG_PATH}")
     return _PARTFIELD_CONFIG_PATH
+
+
+def ensure_partfield_assets_downloaded() -> Path:
+    _resolve_partfield_root()
+    _resolve_partfield_config_path()
+    return _ensure_partfield_checkpoint(_PARTFIELD_CHECKPOINT_PATH)
 
 
 class PartFieldFeatureExtractor:

@@ -6,7 +6,6 @@ import hashlib
 import json
 import os
 import shutil
-import tempfile
 import threading
 import traceback
 import zipfile
@@ -50,7 +49,6 @@ from infer import (
     _denormalize_points,
     _joint_refit_metadata,
     _resolve_visualized_batch_link_point_prompts,
-    _run_mesh_like_prediction,
     _save_articulated_mesh_outputs,
     _write_kinematic_and_overparam_visualization,
     _write_mesh_like_prediction_files,
@@ -65,7 +63,6 @@ from instruct_particulate.utils.auto_kinematics_utils import (
     parse_auto_kinematics_response,
     prepare_lifted_prompt_records_for_saving,
     render_mesh_auto_kinematics_views,
-    resolve_blender_binary,
     save_auto_kinematics_artifacts,
 )
 from instruct_particulate.utils.data_utils import (
@@ -422,7 +419,6 @@ DEMO_CSS = """
   flex-direction: column;
   gap: 0 !important;
 }
-.orientation-panel .markdown,
 .upright-instruction-block,
 .upright-instructions {
   flex: 0 0 auto !important;
@@ -439,8 +435,6 @@ DEMO_CSS = """
   min-height: 0 !important;
   height: auto !important;
 }
-.orientation-panel .markdown h3,
-.orientation-panel .markdown p,
 .upright-instructions h3,
 .upright-instructions p {
   margin-bottom: 0 !important;
@@ -591,10 +585,6 @@ DEMO_CSS = """
   gap: 8px;
   overflow-y: auto;
   padding-right: 4px;
-}
-.output-file-row {
-  flex: 0 0 auto;
-  align-items: center !important;
 }
 .urdf-export-row {
   flex: 0 0 44px;
@@ -852,9 +842,6 @@ DEMO_CSS = """
 """
 
 KINEMATIC_TREE_EDITOR_CSS = """
-.kinematic-json-sync {
-  display: none !important;
-}
 #kin-tree-editor,
 #point-prompt-picker {
   --kin-panel-bg: #f8fafc;
@@ -1499,7 +1486,6 @@ KINEMATIC_TREE_EDITOR_JS = r"""
     const deleteButton = root.querySelector("#kin-delete-selected");
     const resetButton = root.querySelector("#kin-reset-tree");
     const status = root.querySelector("#kin-tree-status");
-    const promptRoot = document.getElementById("point-prompt-picker");
     const promptCanvas = document.getElementById("point-prompt-canvas");
     const promptEmpty = document.getElementById("point-prompt-empty");
     const promptStatus = document.getElementById("point-prompt-status");
@@ -1747,9 +1733,7 @@ KINEMATIC_TREE_EDITOR_JS = r"""
       state.selectedEdge = null;
       state.connectMode = false;
       state.pendingParent = null;
-      if (!options.preservePrompts) {
-        state.prompts = {};
-      }
+      state.prompts = {};
       if (options.syncPrompts !== false) {
         syncPrompts();
       }
@@ -2962,7 +2946,7 @@ def _cached_upright_preview_items(mesh_hash: str) -> list[tuple[str, str]] | Non
     return gallery_items
 
 
-def _auto_kinematics_cache_dir(mesh_hash: str, up_dir: str) -> Path:
+def _auto_kinematics_cache_dir(mesh_hash: str) -> Path:
     return _mesh_cache_dir(mesh_hash) / "auto_kinematics"
 
 
@@ -3027,19 +3011,6 @@ def _store_auto_kinematics_cache(source_dir: Path, cache_dir: Path) -> None:
     if cache_dir.exists():
         shutil.rmtree(cache_dir)
     temp_dir.rename(cache_dir)
-
-
-def _set_preview_axes_equal(ax: Any, vertices: np.ndarray) -> None:
-    bbox_min = vertices.min(axis=0)
-    bbox_max = vertices.max(axis=0)
-    center = (bbox_min + bbox_max) * 0.5
-    radius = float(np.max(bbox_max - bbox_min) * 0.55)
-    if radius <= 0.0:
-        radius = 1.0
-    ax.set_xlim(float(center[0] - radius), float(center[0] + radius))
-    ax.set_ylim(float(center[1] - radius), float(center[1] + radius))
-    ax.set_zlim(float(center[2] - radius), float(center[2] + radius))
-    ax.set_box_aspect((1, 1, 1))
 
 
 def _preview_face_colors(mesh: Any) -> np.ndarray:
@@ -3212,7 +3183,6 @@ def _render_up_direction_preview_software(
 
 def _render_up_direction_previews_software(
     *,
-    mesh_path: Path,
     mesh: Any,
     output_dir: Path,
 ) -> list[tuple[str, str]]:
@@ -3233,50 +3203,6 @@ def _render_up_direction_previews_software(
     return gallery_items
 
 
-def _render_up_direction_preview_image(
-    mesh: Any,
-    *,
-    up_dir: str,
-    output_path: Path,
-    max_faces: int = 3000,
-) -> None:
-    import matplotlib
-
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-
-    reoriented_mesh, _ = reorient_mesh_to_z_up(mesh, up_dir)
-    normalized_mesh, _, _ = normalize_mesh(reoriented_mesh)
-    vertices = np.asarray(normalized_mesh.vertices, dtype=np.float32)
-    faces = np.asarray(normalized_mesh.faces, dtype=np.int64)
-    if faces.shape[0] > max_faces:
-        face_ids = np.linspace(0, faces.shape[0] - 1, int(max_faces), dtype=np.int64)
-        faces = faces[face_ids]
-
-    fig = plt.figure(figsize=(3.2, 3.2), dpi=150)
-    ax = fig.add_subplot(111, projection="3d")
-    ax.plot_trisurf(
-        vertices[:, 0],
-        vertices[:, 1],
-        vertices[:, 2],
-        triangles=faces,
-        color="#cbd5e1",
-        edgecolor="#64748b",
-        linewidth=0.025,
-        antialiased=True,
-        shade=True,
-    )
-    _set_preview_axes_equal(ax, vertices)
-    ax.view_init(elev=20, azim=235)
-    ax.set_axis_off()
-    ax.set_facecolor("#f8fafc")
-    fig.patch.set_facecolor("#f8fafc")
-    fig.tight_layout(pad=0)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(output_path, bbox_inches="tight", pad_inches=0.02)
-    plt.close(fig)
-
-
 def _render_up_direction_previews(
     *,
     mesh_path: Path,
@@ -3291,109 +3217,10 @@ def _render_up_direction_previews(
     else:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
         preview_dir = OUTPUT_ROOT / "up_direction_previews" / f"{mesh_path.stem}_{timestamp}"
-    preview_renderer = os.environ.get("UPRIGHT_PREVIEW_RENDERER", "software").strip().lower()
-    if preview_renderer == "blender":
-        try:
-            return _render_up_direction_previews_with_blender(
-                mesh_path=mesh_path,
-                output_dir=preview_dir,
-            )
-        except Exception:
-            traceback.print_exc()
-
-    try:
-        return _render_up_direction_previews_software(
-            mesh_path=mesh_path,
-            mesh=mesh,
-            output_dir=preview_dir,
-        )
-    except Exception:
-        traceback.print_exc()
-
-    gallery_items: list[tuple[str, str]] = []
-    for up_dir in UP_DIR_CHOICES:
-        output_path = preview_dir / f"up_{_up_dir_slug(up_dir)}.png"
-        _render_up_direction_preview_image(
-            mesh,
-            up_dir=up_dir,
-            output_path=output_path,
-        )
-        gallery_items.append((str(output_path), f"{up_dir} up"))
-    return gallery_items
-
-
-def _render_up_direction_previews_with_blender(
-    *,
-    mesh_path: Path,
-    output_dir: Path,
-) -> list[tuple[str, str]]:
-    import subprocess
-
-    blender_path = resolve_blender_binary(os.environ.get("BLENDER_BIN") or None)
-    blender_script_path = REPO_ROOT / "scripts" / "render_upright_previews_blender.py"
-    if not blender_script_path.exists():
-        raise FileNotFoundError(f"Upright preview Blender script is missing: {blender_script_path}")
-    output_dir.mkdir(parents=True, exist_ok=True)
-    temp_dir_manager = tempfile.TemporaryDirectory(prefix="upright_previews_")
-    render_output_dir = Path(temp_dir_manager.name)
-    blender_expr = (
-        "import numpy as _np; "
-        "_np.bool = bool; "
-        "_np.int = int; "
-        "_np.float = float; "
-        "_np.complex = complex; "
-        "_np.object = object; "
-        f"_script = {str(blender_script_path)!r}; "
-        "exec(compile(open(_script, 'rb').read(), _script, 'exec'), "
-        "{'__name__': '__main__', '__file__': _script})"
+    return _render_up_direction_previews_software(
+        mesh=mesh,
+        output_dir=preview_dir,
     )
-    command = [
-        str(blender_path),
-        "-b",
-        "--python-expr",
-        blender_expr,
-        "--",
-        "--mesh-path",
-        str(mesh_path),
-        "--output-dir",
-        str(render_output_dir),
-        "--resolution",
-        os.environ.get("UPRIGHT_PREVIEW_RESOLUTION", "288"),
-        "--up-dirs",
-        ",".join(UP_DIR_CHOICES),
-    ]
-    try:
-        result = subprocess.run(
-            command,
-            check=False,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-        )
-        if result.returncode != 0:
-            if result.stdout:
-                print(result.stdout)
-            raise subprocess.CalledProcessError(
-                result.returncode,
-                command,
-                output=result.stdout,
-            )
-
-        gallery_items: list[tuple[str, str]] = []
-        for up_dir in UP_DIR_CHOICES:
-            temp_output_path = render_output_dir / f"up_{_up_dir_slug(up_dir)}.png"
-            output_path = output_dir / temp_output_path.name
-            if not temp_output_path.exists() or temp_output_path.stat().st_size <= 0:
-                stdout_tail = "\n".join((result.stdout or "").splitlines()[-40:])
-                raise FileNotFoundError(
-                    "Blender did not write upright preview: "
-                    f"{temp_output_path}\nBlender output:\n{stdout_tail}"
-                )
-            shutil.copy2(temp_output_path, output_path)
-            gallery_items.append((str(output_path), f"{up_dir} up"))
-        return gallery_items
-    finally:
-        temp_dir_manager.cleanup()
 
 
 def _load_point_prompt_payload(raw_value: str | None) -> dict[str, Any]:
@@ -3833,7 +3660,6 @@ class InstructParticulateApp:
             yield (
                 None,
                 None,
-                "Upload a mesh to run inference.",
                 "",
                 *empty_orientation_previews,
                 "",
@@ -3849,7 +3675,6 @@ class InstructParticulateApp:
             yield (
                 None,
                 None,
-                f"Could not load mesh: {exc}",
                 "",
                 *empty_orientation_previews,
                 "",
@@ -3873,7 +3698,6 @@ class InstructParticulateApp:
         yield (
             str(mesh_path),
             mesh_hash,
-            f"Loaded {mesh_path.name}: {len(mesh.faces)} faces. {preview_status}",
             "",
             *rendering_orientation_previews,
             "",
@@ -3888,7 +3712,6 @@ class InstructParticulateApp:
             yield (
                 str(mesh_path),
                 mesh_hash,
-                f"Loaded {mesh_path.name}: {len(mesh.faces)} faces. Could not prepare point picker mesh: {exc}",
                 "",
                 *rendering_orientation_previews,
                 "",
@@ -3901,7 +3724,6 @@ class InstructParticulateApp:
         yield (
             str(mesh_path),
             mesh_hash,
-            f"Loaded {mesh_path.name}: {len(mesh.faces)} faces. Point picker ready. {preview_status}",
             prompt_mesh_data,
             *rendering_orientation_previews,
             "",
@@ -3913,7 +3735,6 @@ class InstructParticulateApp:
             yield (
                 str(mesh_path),
                 mesh_hash,
-                f"Loaded {mesh_path.name}: {len(mesh.faces)} faces. Select the upright orientation before inference.",
                 prompt_mesh_data,
                 *_upright_preview_paths(cached_upright_previews),
                 "",
@@ -3934,7 +3755,6 @@ class InstructParticulateApp:
             yield (
                 str(mesh_path),
                 mesh_hash,
-                f"Loaded {mesh_path.name}: {len(mesh.faces)} faces. Upright-view previews could not be rendered: {exc}",
                 prompt_mesh_data,
                 *empty_orientation_previews,
                 "",
@@ -3947,7 +3767,6 @@ class InstructParticulateApp:
         yield (
             str(mesh_path),
             mesh_hash,
-            f"Loaded {mesh_path.name}: {len(mesh.faces)} faces. Select the upright orientation before inference.",
             prompt_mesh_data,
             *_upright_preview_paths(upright_previews),
             "",
@@ -3986,7 +3805,7 @@ class InstructParticulateApp:
         try:
             canonical_up = canonicalize_up_dir(up_dir)
             mesh_hash = str(mesh_hash_value or _mesh_file_sha256(mesh_path))
-            cache_dir = _auto_kinematics_cache_dir(mesh_hash, canonical_up)
+            cache_dir = _auto_kinematics_cache_dir(mesh_hash)
             cached_auto = _cached_auto_kinematics(cache_dir)
             if cached_auto is not None:
                 extracted_tree_json, extracted_prompt_json = cached_auto
@@ -4450,7 +4269,6 @@ class InstructParticulateApp:
                 gr.update(),
                 gr.update(),
                 gr.update(),
-                gr.update(),
                 gr.update(interactive=False),
             )
 
@@ -4496,11 +4314,9 @@ class InstructParticulateApp:
             segmentation_num_query_points=int(payload["segmentation_num_query_points"]),
             visualization_path=visualization_path,
         )
-        zip_path = _zip_directory(output_dir)
         return (
             str(output_dir / "animated_textured.glb"),
             str(output_dir / "mesh_parts_with_axes.glb"),
-            str(zip_path),
             str(output_dir),
             f"Success using input up direction {canonical_up}. Wrote outputs to {output_dir}",
             gr.update(interactive=True),
@@ -4855,9 +4671,6 @@ def _html_attr_json(value: dict[str, Any]) -> str:
 
 def _kinematic_tree_editor_html() -> str:
     return f"""
-    <style>
-    {KINEMATIC_TREE_EDITOR_CSS}
-    </style>
     <div id="kin-tree-editor" class="kin-tree-panel" data-default-tree="{_html_attr_json(DEFAULT_KINEMATIC_TREE)}">
       <div class="kin-tree-header">
         <h3>Kinematic Tree Editor</h3>
@@ -4944,12 +4757,6 @@ def create_gradio_app(app: InstructParticulateApp) -> gr.Blocks:
                 input_mesh = gr.Model3D(label="Input Mesh", interactive=True, height=300)
                 examples = _example_meshes()
                 examples_container = None
-                mesh_status = gr.Textbox(
-                    label="Mesh Status",
-                    interactive=False,
-                    visible=False,
-                    elem_classes=["kinematic-json-sync"],
-                )
                 if examples:
                     with gr.Column(elem_classes=["mesh-examples"]) as examples_container:
                         pass
@@ -5071,11 +4878,6 @@ def create_gradio_app(app: InstructParticulateApp) -> gr.Blocks:
                         scale=1,
                         elem_classes=["capped-output"],
                     )
-                output_zip = gr.File(
-                    label="All Outputs",
-                    visible=False,
-                    elem_classes=["kinematic-json-sync"],
-                )
                 with gr.Row(elem_classes=["urdf-export-row"]):
                     export_urdf_button = gr.Button("Export URDF", interactive=False)
                     urdf_zip = gr.DownloadButton(
@@ -5104,7 +4906,6 @@ def create_gradio_app(app: InstructParticulateApp) -> gr.Blocks:
                     outputs=[
                         loaded_mesh_path,
                         loaded_mesh_hash,
-                        mesh_status,
                         point_prompt_mesh_data,
                         *upright_preview_images,
                         selected_up_dir,
@@ -5124,7 +4925,6 @@ def create_gradio_app(app: InstructParticulateApp) -> gr.Blocks:
             outputs=[
                 loaded_mesh_path,
                 loaded_mesh_hash,
-                mesh_status,
                 point_prompt_mesh_data,
                 *upright_preview_images,
                 selected_up_dir,
@@ -5207,7 +5007,6 @@ def create_gradio_app(app: InstructParticulateApp) -> gr.Blocks:
             outputs=[
                 animated_model,
                 prediction_model,
-                output_zip,
                 latest_output_dir,
                 status,
                 export_urdf_button,

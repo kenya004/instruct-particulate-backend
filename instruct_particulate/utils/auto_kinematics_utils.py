@@ -18,7 +18,6 @@ import trimesh
 from PIL import Image, ImageDraw
 
 from instruct_particulate.utils.data_utils import (
-    load_trimesh,
     normalize_mesh,
     reorient_mesh_to_z_up,
     up_dir_rotation_matrix,
@@ -819,18 +818,6 @@ def _denormalize_points(
         np.float32,
         copy=False,
     )
-
-
-def load_normalized_visualization_mesh(
-    mesh_path: Path,
-    *,
-    mesh_up_dir: str = "+Y",
-) -> trimesh.Trimesh:
-    """Loads a saved visualization mesh and converts it back to normalized model space."""
-    raw_mesh = load_trimesh(mesh_path)
-    original_mesh, _ = reorient_mesh_to_z_up(raw_mesh, mesh_up_dir)
-    normalized_mesh, _, _ = normalize_mesh(original_mesh)
-    return normalized_mesh
 
 
 def prepare_lifted_prompt_records_for_saving(

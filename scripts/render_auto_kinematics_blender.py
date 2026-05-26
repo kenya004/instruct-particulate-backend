@@ -20,7 +20,6 @@ np.object = object
 
 import bpy
 from mathutils import Matrix, Vector
-from PIL import Image
 
 IMPORT_FUNCTIONS = {
     "obj": bpy.ops.wm.obj_import,
@@ -58,14 +57,6 @@ def orient_saved_raster_payload(buffer: np.ndarray, *, flip: bool) -> np.ndarray
     if flip:
         oriented = np.flip(np.flip(oriented, axis=0), axis=1)
     return oriented.copy()
-
-
-def orient_saved_render_image(image: Image.Image, *, flip: bool) -> Image.Image:
-    """Apply the same output-space transform as the saved raster payloads."""
-    if not flip:
-        return image.copy()
-    oriented = image.transpose(Image.FLIP_TOP_BOTTOM)
-    return oriented.transpose(Image.FLIP_LEFT_RIGHT)
 
 
 def parse_args() -> argparse.Namespace:
@@ -470,8 +461,6 @@ def rasterize_view(
 
 
 def main() -> None:
-    if bpy is None or Matrix is None or Vector is None:
-        raise ImportError("render_auto_kinematics_blender.py must be run inside Blender.")
     args = parse_args()
 
     output_dir = args.output_dir.resolve()
@@ -538,10 +527,6 @@ def main() -> None:
             elevation_deg=np.float32(90.0 - float(args.pitch_deg)),
             pitch_deg=np.float32(args.pitch_deg),
         )
-        if Image is not None:
-            with Image.open(image_path) as image:
-                oriented = orient_saved_render_image(image, flip=not selected_up_dir)
-                oriented.save(image_path)
         print(
             f"Rendered auto-kinematics Blender view {image_id + 1}/{len(args.azimuths)} "
             f"(azimuth={float(azimuth_deg):.1f}, pitch={float(args.pitch_deg):.1f})"

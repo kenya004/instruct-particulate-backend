@@ -252,16 +252,37 @@ def render_mesh_auto_kinematics_views(
         print(
             f"Rendering {len(azimuths)} auto-kinematics views with Blender at {blender_path}"
         )
-        subprocess.run(command, check=True)
+        completed_process = subprocess.run(
+            command,
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        blender_output = completed_process.stdout or ""
+        if blender_output:
+            print(blender_output, end="" if blender_output.endswith("\n") else "\n")
+        if completed_process.returncode != 0:
+            raise subprocess.CalledProcessError(
+                completed_process.returncode,
+                command,
+                output=blender_output,
+            )
 
         total_views = len(azimuths)
         for image_id, azimuth_deg in enumerate(azimuths):
             temp_image_path = render_output_dir / f"view_{image_id:03d}.png"
             temp_camera_path = render_output_dir / f"view_{image_id:03d}_camera.npz"
             if not temp_image_path.exists():
-                raise FileNotFoundError(f"Blender render output is missing image: {temp_image_path}")
+                raise FileNotFoundError(
+                    "Blender render output is missing image: "
+                    f"{temp_image_path}\nBlender output:\n{blender_output}"
+                )
             if not temp_camera_path.exists():
-                raise FileNotFoundError(f"Blender render output is missing camera data: {temp_camera_path}")
+                raise FileNotFoundError(
+                    "Blender render output is missing camera data: "
+                    f"{temp_camera_path}\nBlender output:\n{blender_output}"
+                )
 
             image_path = output_dir / temp_image_path.name
             camera_path = output_dir / temp_camera_path.name

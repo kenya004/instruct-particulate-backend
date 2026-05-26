@@ -326,11 +326,15 @@ DEMO_CSS = """
   height: 100% !important;
   min-height: 500px !important;
 }
-#kinematic_tree_editor_html > .wrap.center.full.hide,
-#kinematic_tree_editor_html .wrap.center.full.hide {
+#kinematic_tree_editor_html > .wrap.center.full,
+#kinematic_tree_editor_html .wrap.center.full,
+.kinematic-editor-host > .wrap.center.full {
   display: none !important;
   opacity: 0 !important;
   visibility: hidden !important;
+  width: 0 !important;
+  height: 0 !important;
+  min-height: 0 !important;
 }
 #kinematic_tree_editor_html {
   display: block !important;
@@ -554,6 +558,7 @@ DEMO_CSS = """
   min-height: 0;
   max-height: calc(var(--output-tile-size) + 34px);
   align-items: flex-start !important;
+  flex-wrap: nowrap !important;
 }
 .output-triplet-row > .form,
 .output-triplet-row > div {
@@ -636,7 +641,6 @@ DEMO_CSS = """
   .kin-panel {
     display: flex !important;
     flex-direction: column !important;
-    order: -1 !important;
     overflow: visible !important;
     opacity: 1 !important;
     visibility: visible !important;
@@ -671,14 +675,18 @@ DEMO_CSS = """
     overflow: visible !important;
   }
   .output-triplet-row {
-    --output-tile-size: min(360px, 100cqw);
+    --output-tile-size: min(360px, 92vw);
     flex: 0 0 auto !important;
     max-height: none !important;
-    flex-wrap: wrap !important;
+    flex-direction: column !important;
+    flex-wrap: nowrap !important;
+    align-items: stretch !important;
   }
   .output-triplet-row > .form,
   .output-triplet-row > div {
-    flex: 1 1 min(100%, 320px) !important;
+    flex: 0 0 auto !important;
+    width: 100% !important;
+    max-width: 100% !important;
   }
   .capped-output {
     height: auto !important;
@@ -717,7 +725,7 @@ DEMO_CSS = """
   }
   .output-triplet-row > .form,
   .output-triplet-row > div {
-    flex: 1 1 100% !important;
+    flex: 0 0 auto !important;
   }
 }
 @media (max-width: 460px) {

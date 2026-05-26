@@ -4,11 +4,7 @@ from pathlib import Path
 from typing import Tuple
 
 import numpy as np
-
-try:
-    import trimesh
-except ImportError:  # pragma: no cover - optional in Blender's bundled Python
-    trimesh = None
+import trimesh
 
 
 CANONICAL_UP_DIRS = ("+X", "-X", "+Y", "-Y", "+Z", "-Z")
@@ -61,8 +57,6 @@ def reorient_mesh_to_z_up(
     up_dir: str,
 ) -> tuple[trimesh.Trimesh, np.ndarray]:
     """Return a mesh copy rotated so its declared up direction becomes ``+Z``."""
-    if trimesh is None:
-        raise ImportError("trimesh is required for reorient_mesh_to_z_up but is not installed")
     rotation = up_dir_rotation_matrix_to_z(up_dir)
     transformed_mesh = mesh.copy()
     transform = np.eye(4, dtype=np.float32)
@@ -103,8 +97,6 @@ def load_obj_raw_preserve(path: Path) -> Tuple[np.ndarray, np.ndarray]:
 
 def load_trimesh(path: Path) -> trimesh.Trimesh:
     """Load a mesh while preserving OBJ vertex order when possible."""
-    if trimesh is None:
-        raise ImportError("trimesh is required for load_trimesh but is not installed")
     path = Path(path)
     if path.suffix.lower() == ".obj":
         vertices, faces = load_obj_raw_preserve(path)
@@ -155,29 +147,10 @@ def normalize_mesh(
     mesh: trimesh.Trimesh,
 ) -> Tuple[trimesh.Trimesh, np.ndarray, float]:
     """Return a normalized mesh copy plus the bbox center and scalar scale."""
-    if trimesh is None:
-        raise ImportError("trimesh is required for normalize_mesh but is not installed")
     normalized_vertices, center, scale = normalize_points_to_unit_extent(mesh.vertices)
     normalized_mesh = mesh.copy()
     normalized_mesh.vertices = normalized_vertices
     return normalized_mesh, center, scale
-
-
-def get_face_to_link_mapping(
-    verts_to_bone: np.ndarray,
-    faces: np.ndarray,
-) -> np.ndarray:
-    """
-    Get the face to bone mapping.
-    """
-    face_to_link = []
-    for face in faces:
-        bone_ids = verts_to_bone[face]
-        if len(np.unique(bone_ids)) != 1:  # All vertices belong to same bone
-            return None
-        face_to_link.append(bone_ids[0])
-
-    return np.array(face_to_link)
 
 
 def sharp_sample_pointcloud(mesh, num_points: int = 8192):
@@ -264,7 +237,7 @@ def sample_points(mesh, num_points, sharp_point_ratio):
 
     # If no sharp edges were found, sample all points uniformly
     if len(points_sharp) == 0 and sharp_point_ratio > 0:
-        print(f"Warning: No sharp edges found, sampling all points uniformly")
+        print("Warning: No sharp edges found, sampling all points uniformly")
         num_points_uniform = num_points
 
     if num_points_uniform > 0:

@@ -1,6 +1,5 @@
 import json
 import os
-import re
 from pathlib import Path
 from typing import Any, Mapping, Optional, Sequence, Tuple
 
@@ -9,12 +8,6 @@ import torch
 import torch.nn.functional as F
 import yaml
 
-from instruct_particulate.datasets.dataset import (
-    InstructParticulateDataset,
-)
-from instruct_particulate.utils.saved_auto_kinematics_utils import (
-    is_saved_auto_kinematics_root,
-)
 from instruct_particulate.utils.articulation_utils import (
     plucker_to_axis_point,
     transform_plucker,
@@ -25,88 +18,10 @@ from instruct_particulate.utils.data_utils import (
 )
 
 
-def resolve_input_mode(input_path: Path) -> str:
-    expanded_path = input_path.expanduser()
-    if is_saved_auto_kinematics_root(expanded_path):
-        return "saved_auto_kinematics_root"
-    if expanded_path.is_dir():
-        return "meta_root"
-    return "mesh"
-
-
-def resolve_num_query_points(
-    requested_num_query_points: int | None,
-    default_num_query_points: int | None,
-) -> int:
-    if requested_num_query_points is not None:
-        return int(requested_num_query_points)
-    if default_num_query_points is None:
-        raise ValueError(
-            "Could not infer a default num_query_points from the saved config. "
-            "Please pass --num-query-points explicitly."
-        )
-    return int(default_num_query_points)
-
-
 def write_json(path: Path, payload: Any) -> None:
     """Writes a JSON payload with stable indentation."""
     with path.open("w", encoding="utf-8") as fh:
         json.dump(payload, fh, indent=2)
-
-
-def range_forward_masks_by_child_link(
-    joints: Sequence[dict[str, Any]],
-    *,
-    num_links: int,
-) -> tuple[np.ndarray, np.ndarray]:
-    """Builds masks for links whose joint ranges are present in metadata."""
-    revolute_range_forward_mask = np.zeros((num_links,), dtype=np.bool_)
-    prismatic_range_forward_mask = np.zeros((num_links,), dtype=np.bool_)
-    for joint in joints:
-        child_link_id = int(joint["child_link_id"])
-        if not 0 <= child_link_id < num_links:
-            raise ValueError(
-                f"child_link_id={child_link_id} is outside [0, {num_links}) for range forwarding"
-            )
-        if joint.get("revolute_range") is not None:
-            revolute_range_forward_mask[child_link_id] = True
-        if joint.get("prismatic_range") is not None:
-            prismatic_range_forward_mask[child_link_id] = True
-    return revolute_range_forward_mask, prismatic_range_forward_mask
-
-
-def suppress_unforwarded_joint_ranges(
-    joints: Sequence[dict[str, Any]],
-    *,
-    revolute_range_forward_mask: np.ndarray,
-    prismatic_range_forward_mask: np.ndarray,
-) -> list[dict[str, Any]]:
-    """Returns joint records with non-forwarded ranges removed."""
-    suppressed_joints: list[dict[str, Any]] = []
-    for joint in joints:
-        child_link_id = int(joint["child_link_id"])
-        updated_joint = dict(joint)
-        if not bool(revolute_range_forward_mask[child_link_id]):
-            updated_joint["revolute_range"] = None
-        if not bool(prismatic_range_forward_mask[child_link_id]):
-            updated_joint["prismatic_range"] = None
-        suppressed_joints.append(updated_joint)
-    return suppressed_joints
-
-
-def zero_unforwarded_link_ranges(
-    link_ranges: np.ndarray,
-    *,
-    forward_mask: np.ndarray,
-) -> np.ndarray:
-    """Zeros per-link ranges that were not forwarded from source metadata."""
-    masked_ranges = np.asarray(link_ranges, dtype=np.float32).copy()
-    if masked_ranges.shape != (len(forward_mask), 2):
-        raise ValueError(
-            f"Expected link_ranges to have shape ({len(forward_mask)}, 2), got {masked_ranges.shape}"
-        )
-    masked_ranges[~np.asarray(forward_mask, dtype=np.bool_)] = 0.0
-    return masked_ranges
 
 
 def axis_point_to_plucker_torch(axis: torch.Tensor, point: torch.Tensor) -> torch.Tensor:
@@ -312,66 +227,6 @@ def configure_runtime_environment(config: Mapping[str, Any]) -> None:
     os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 
 
-def extract_checkpoint_step(checkpoint_path: Path) -> int | None:
-    match = re.fullmatch(r"step_(\d+)\.pt", checkpoint_path.name)
-    if match is None:
-        return None
-    return int(match.group(1))
-
-
-def resolve_checkpoint_path(
-    run_dir: Path,
-    ckpt_idx: str | int | None = None,
-) -> Path:
-    checkpoint_root = run_dir / "checkpoints"
-    if not checkpoint_root.exists():
-        raise FileNotFoundError(f"Checkpoint directory does not exist: {checkpoint_root}")
-
-    step_paths = [
-        path for path in checkpoint_root.glob("step_*.pt")
-        if extract_checkpoint_step(path) is not None
-    ]
-    step_paths.sort(key=lambda path: extract_checkpoint_step(path) or -1)
-
-    if ckpt_idx is None:
-        if step_paths:
-            return step_paths[-1]
-        latest_path = checkpoint_root / "latest.pt"
-        if latest_path.exists():
-            return latest_path
-        raise FileNotFoundError(f"No step_*.pt or latest.pt found under {checkpoint_root}")
-
-    if isinstance(ckpt_idx, str):
-        lowered = ckpt_idx.lower()
-        if lowered == "latest":
-            latest_path = checkpoint_root / "latest.pt"
-            if not latest_path.exists():
-                raise FileNotFoundError(f"Missing latest.pt under {checkpoint_root}")
-            return latest_path
-        if lowered == "best":
-            best_path = checkpoint_root / "best.pt"
-            if not best_path.exists():
-                raise FileNotFoundError(f"Missing best.pt under {checkpoint_root}")
-            return best_path
-        if not lowered.isdigit():
-            raise ValueError(
-                "--ckpt-idx must be an integer step count, 'latest', or 'best', "
-                f"got {ckpt_idx!r}"
-            )
-        ckpt_idx = int(lowered)
-
-    target_step = int(ckpt_idx)
-    exact_path = checkpoint_root / f"step_{target_step:07d}.pt"
-    if exact_path.exists():
-        return exact_path
-    for step_path in step_paths:
-        if extract_checkpoint_step(step_path) == target_step:
-            return step_path
-    raise FileNotFoundError(
-        f"Could not find checkpoint step {target_step} under {checkpoint_root}"
-    )
-
-
 def load_model_checkpoint_for_inference(
     model: torch.nn.Module,
     checkpoint_path: Path,
@@ -486,83 +341,6 @@ def validate_link_names(
     if require_unique and len(set(cleaned_link_names)) != len(cleaned_link_names):
         raise ValueError(f"Link names must be unique, got {cleaned_link_names}")
     return cleaned_link_names
-
-
-def parse_link_names_input(raw_value: str) -> list[str]:
-    link_names = [
-        link_name.strip()
-        for link_name in raw_value.replace(";", ",").split(",")
-        if link_name.strip()
-    ]
-    return validate_link_names(link_names)
-
-
-def parse_joint_spec(joint_spec: str) -> tuple[int, int, str]:
-    normalized = joint_spec.strip()
-    if normalized.startswith("(") and normalized.endswith(")"):
-        normalized = normalized[1:-1]
-    fields = [field.strip() for field in normalized.split(",")]
-    if len(fields) != 3:
-        raise ValueError(
-            "Joint specs must look like '(parent_id, child_id, revolute)' or '0,1,prismatic', "
-            f"got {joint_spec!r}"
-        )
-    parent_link_id = int(fields[0])
-    child_link_id = int(fields[1])
-    joint_type = fields[2].lower()
-    if joint_type not in {"revolute", "prismatic"}:
-        raise ValueError(
-            f"Joint type must be 'revolute' or 'prismatic', got {fields[2]!r}"
-        )
-    return parent_link_id, child_link_id, joint_type
-
-
-def parse_joint_specs_input(raw_value: str) -> list[tuple[int, int, str]]:
-    normalized = raw_value.strip()
-    if not normalized:
-        return []
-
-    # Prefer semicolon separators between joint tuples. Fall back to line-wise parsing.
-    if ";" in normalized:
-        candidates = [candidate.strip() for candidate in normalized.split(";") if candidate.strip()]
-    else:
-        candidates = [candidate.strip() for candidate in normalized.splitlines() if candidate.strip()]
-
-    joint_specs = [parse_joint_spec(candidate) for candidate in candidates]
-    return joint_specs
-
-
-def prompt_for_link_names_and_joints() -> tuple[list[str], list[tuple[int, int, str]]]:
-    while True:
-        raw_link_names = input(
-            "Enter link names separated by commas: "
-        ).strip()
-        try:
-            link_names = parse_link_names_input(raw_link_names)
-        except ValueError as error:
-            print(f"Invalid link names: {error}")
-            continue
-        break
-
-    print("Assigned link IDs:")
-    for link_id, link_name in enumerate(link_names):
-        print(f"  {link_id}: {link_name}")
-
-    while True:
-        raw_joint_specs = input(
-            "Enter joints separated by ';' in the form "
-            "'(parent_id, child_id, revolute)' or '(parent_id, child_id, prismatic)'. "
-            "Leave empty if there are no joints: "
-        ).strip()
-        try:
-            joint_specs = parse_joint_specs_input(raw_joint_specs)
-            build_joint_tensors(len(link_names), joint_specs)
-        except ValueError as error:
-            print(f"Invalid joint specification: {error}")
-            continue
-        break
-
-    return link_names, joint_specs
 
 
 def build_joint_tensors(
@@ -805,82 +583,6 @@ def prepare_inference_batch_from_mesh(
     )
 
 
-def _make_dataset_inference_helper() -> InstructParticulateDataset:
-    """Returns an uninitialized dataset instance for helper-method reuse."""
-    return InstructParticulateDataset.__new__(InstructParticulateDataset)
-
-
-def _sample_point_on_triangle(triangle_vertices: np.ndarray) -> np.ndarray:
-    """Samples one point uniformly from a triangle."""
-    r1 = float(np.random.random())
-    r2 = float(np.random.random())
-    sqrt_r1 = np.sqrt(r1)
-    barycentric = np.asarray(
-        [
-            1.0 - sqrt_r1,
-            sqrt_r1 * (1.0 - r2),
-            sqrt_r1 * r2,
-        ],
-        dtype=np.float32,
-    )
-    return (triangle_vertices * barycentric[:, None]).sum(axis=0).astype(
-        np.float32,
-        copy=False,
-    )
-
-
-def sample_link_point_prompts_from_face_seg(
-    mesh,
-    *,
-    face_link_ids: np.ndarray,
-    sorted_links: Sequence[Mapping[str, Any]],
-) -> tuple[torch.Tensor, torch.Tensor, np.ndarray]:
-    """Samples one surface point prompt per link using the face segmentation."""
-    face_link_ids = np.asarray(face_link_ids, dtype=np.int64)
-    mesh_faces = np.asarray(mesh.faces, dtype=np.int64)
-    if face_link_ids.shape != (mesh_faces.shape[0],):
-        raise ValueError(
-            "face_link_ids must have one entry per mesh face, "
-            f"got shape {face_link_ids.shape} for {mesh_faces.shape[0]} faces"
-        )
-
-    mesh_vertices = np.asarray(mesh.vertices, dtype=np.float32)
-    mesh_face_normals = np.asarray(mesh.face_normals, dtype=np.float32)
-    mesh_face_areas = np.asarray(mesh.area_faces, dtype=np.float64)
-    link_point_prompts = np.zeros((len(sorted_links), 3), dtype=np.float32)
-    link_point_prompt_normals = np.zeros((len(sorted_links), 3), dtype=np.float32)
-    link_point_prompt_face_ids = np.full((len(sorted_links),), -1, dtype=np.int64)
-
-    for link_idx, link in enumerate(sorted_links):
-        link_id = int(link["link_id"])
-        candidate_face_indices = np.flatnonzero(face_link_ids == link_id)
-        if candidate_face_indices.size == 0:
-            raise ValueError(
-                "Cannot sample a point prompt for link_id="
-                f"{link_id}: the face segmentation does not reference this link"
-            )
-
-        candidate_face_areas = mesh_face_areas[candidate_face_indices]
-        if np.any(candidate_face_areas > 0.0):
-            face_probabilities = candidate_face_areas / candidate_face_areas.sum()
-            sampled_face_index = int(
-                np.random.choice(candidate_face_indices, p=face_probabilities)
-            )
-        else:
-            sampled_face_index = int(np.random.choice(candidate_face_indices))
-
-        triangle_vertices = mesh_vertices[mesh_faces[sampled_face_index]]
-        link_point_prompts[link_idx] = _sample_point_on_triangle(triangle_vertices)
-        link_point_prompt_normals[link_idx] = mesh_face_normals[sampled_face_index]
-        link_point_prompt_face_ids[link_idx] = sampled_face_index
-
-    return (
-        torch.from_numpy(link_point_prompts).float(),
-        torch.from_numpy(link_point_prompt_normals).float(),
-        link_point_prompt_face_ids.astype(np.int64, copy=False),
-    )
-
-
 def _sample_points_on_triangles(triangle_vertices: np.ndarray) -> np.ndarray:
     """Samples one point uniformly from each triangle in `triangle_vertices`.
 
@@ -1092,112 +794,6 @@ def run_joint_refit_from_face_seg(
     return refit_output, refit_sampling
 
 
-def prepare_inference_batch_from_meta_root(
-    mesh,
-    *,
-    face_link_ids: np.ndarray,
-    links: Sequence[Mapping[str, Any]],
-    joints: Sequence[Mapping[str, Any]],
-    num_shape_points: int,
-    num_query_points: int,
-    num_query_points_per_face_for_seg: int | None = None,
-    sharp_point_ratio: float,
-    device: torch.device,
-) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Builds a one-sample inference batch from a meta-root export."""
-    dataset_helper = _make_dataset_inference_helper()
-    annotated_links = dataset_helper._annotate_links_with_prompt_metadata(
-        [dict(link) for link in links]
-    )
-    copied_joints = dataset_helper._copy_joints([dict(joint) for joint in joints])
-    remapped_face_link_ids, remapped_links, remapped_joints = (
-        dataset_helper._remap_sample_link_ids_to_dense_range(
-            np.asarray(face_link_ids, dtype=np.int64),
-            annotated_links,
-            copied_joints,
-        )
-    )
-    sorted_links = sorted(remapped_links, key=lambda link: int(link["link_id"]))
-    sorted_joints = dataset_helper._copy_joints(remapped_joints)
-    parsed_joints = dataset_helper._parse_joints(sorted_joints)
-
-    link_text_prompts = [
-        dataset_helper._get_link_name_variants(link)[0]
-        for link in sorted_links
-    ]
-    link_point_prompt_dropout_eligible = torch.tensor(
-        [
-            bool(link.get("link_point_prompt_dropout_eligible", True))
-            for link in sorted_links
-        ],
-        dtype=torch.bool,
-    )
-    display_links = [
-        {
-            **dict(link),
-            "name": link_text_prompts[link_idx],
-        }
-        for link_idx, link in enumerate(sorted_links)
-    ]
-
-    shape_points, shape_normals, _, _ = sample_mesh_points(
-        mesh,
-        num_points=num_shape_points,
-        sharp_point_ratio=sharp_point_ratio,
-    )
-    if num_query_points_per_face_for_seg is None:
-        query_points, query_normals, _, query_face_indices = sample_mesh_points(
-            mesh,
-            num_points=num_query_points,
-            sharp_point_ratio=0.0,
-        )
-    else:
-        query_points, query_normals, _, query_face_indices = sample_mesh_points_per_face(
-            mesh,
-            num_points_per_face=int(num_query_points_per_face_for_seg),
-        )
-    query_face_indices = query_face_indices.astype(np.int64, copy=False)
-    query_gt_link_ids = remapped_face_link_ids[query_face_indices].astype(
-        np.int64,
-        copy=False,
-    )
-    (
-        link_point_prompts,
-        link_point_prompt_normals,
-        link_point_prompt_face_ids,
-    ) = sample_link_point_prompts_from_face_seg(
-        mesh,
-        face_link_ids=remapped_face_link_ids,
-        sorted_links=sorted_links,
-    )
-
-    num_links = len(sorted_links)
-    num_joints = len(sorted_joints)
-    batch = _build_inference_batch(
-        shape_points=shape_points,
-        shape_normals=shape_normals,
-        query_points=query_points,
-        query_normals=query_normals,
-        num_links=num_links,
-        joint_connections=parsed_joints["joint_connections"],
-        joint_valid_flag=torch.ones((num_joints,), dtype=torch.bool),
-        is_revolute=parsed_joints["is_revolute"],
-        is_prismatic=parsed_joints["is_prismatic"],
-        device=device,
-        link_point_prompts=link_point_prompts,
-        link_point_prompt_normals=link_point_prompt_normals,
-        link_point_prompt_dropout_eligible=link_point_prompt_dropout_eligible,
-        link_text_prompts=link_text_prompts,
-    )
-    return batch, {
-        "link_names": list(link_text_prompts),
-        "sorted_links": display_links,
-        "sorted_joints": sorted_joints,
-        "query_face_indices": query_face_indices,
-        "query_gt_link_ids": query_gt_link_ids,
-        "face_gt_link_ids": remapped_face_link_ids.astype(np.int64, copy=False),
-        "link_point_prompt_face_ids": link_point_prompt_face_ids.astype(np.int64, copy=False),
-    }
 def run_batched_model_inference(
     model: Any,
     *,

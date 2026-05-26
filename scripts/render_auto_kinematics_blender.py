@@ -18,32 +18,19 @@ np.float = float
 np.complex = complex
 np.object = object
 
-try:
-    import bpy
-    from mathutils import Matrix, Vector
-except ImportError:  # pragma: no cover - Blender-only runtime dependency
-    bpy = None
-    Matrix = None
-    Vector = None
+import bpy
+from mathutils import Matrix, Vector
+from PIL import Image
 
-try:
-    from PIL import Image
-except ImportError:
-    Image = None
-
-
-if bpy is not None:
-    IMPORT_FUNCTIONS = {
-        "obj": bpy.ops.wm.obj_import,
-        "glb": bpy.ops.import_scene.gltf,
-        "gltf": bpy.ops.import_scene.gltf,
-        "fbx": bpy.ops.import_scene.fbx,
-        "stl": bpy.ops.wm.stl_import,
-        "dae": bpy.ops.wm.collada_import,
-        "ply": bpy.ops.wm.ply_import,
-    }
-else:  # pragma: no cover - used only in non-Blender unit tests
-    IMPORT_FUNCTIONS = {}
+IMPORT_FUNCTIONS = {
+    "obj": bpy.ops.wm.obj_import,
+    "glb": bpy.ops.import_scene.gltf,
+    "gltf": bpy.ops.import_scene.gltf,
+    "fbx": bpy.ops.import_scene.fbx,
+    "stl": bpy.ops.wm.stl_import,
+    "dae": bpy.ops.wm.collada_import,
+    "ply": bpy.ops.wm.ply_import,
+}
 
 
 UP_DIR_ROTATIONS = {

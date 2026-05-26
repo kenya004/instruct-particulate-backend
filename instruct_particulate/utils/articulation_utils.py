@@ -50,17 +50,6 @@ def plucker_to_4x4_transform_matrix(plucker: np.ndarray, angle: float) -> np.nda
     return T
 
 
-def shift_axes_plucker(
-    axes_plucker: np.ndarray,
-    x_center: float, y_center: float, z_center: float, scale: float
-) -> np.ndarray:
-    """Shift the axes plucker coordinates."""
-    axis, point = plucker_to_axis_point(axes_plucker)
-    point_new = point - np.array([x_center, y_center, z_center])
-    point_new *= scale
-    return axis_point_to_plucker(axis, point_new)
-
-
 def transform_points(points: np.ndarray, transform_matrix: np.ndarray) -> np.ndarray:
     """
     Transform points by a 4x4 transformation matrix.
@@ -108,11 +97,6 @@ def joint_has_prismatic_motion(joint: Dict[str, Any]) -> bool:
     )
 
 
-def joint_has_revolute_range(joint: Dict[str, Any]) -> bool:
-    """Returns whether a joint carries finite revolute range supervision."""
-    return joint_has_revolute_motion(joint) and joint.get("revolute_range") is not None
-
-
 def joint_has_prismatic_range(joint: Dict[str, Any]) -> bool:
     """Returns whether a joint carries finite prismatic range supervision."""
     return joint_has_prismatic_motion(joint) and joint.get("prismatic_range") is not None
@@ -132,14 +116,6 @@ def get_prismatic_articulation_range(joint: Dict[str, Any]) -> Optional[np.ndarr
     if not joint_has_prismatic_range(joint):
         return None
     return np.asarray(joint["prismatic_range"], dtype=np.float32)
-
-
-def joint_is_movable(joint: Dict[str, Any]) -> bool:
-    """Returns whether a joint can currently be articulated."""
-    return (
-        get_revolute_articulation_range(joint) is not None
-        or get_prismatic_articulation_range(joint) is not None
-    )
 
 
 def articulate_points_with_joints(
@@ -516,92 +492,3 @@ def compute_part_transforms(
     
     return transforms
 
-
-def articulate_bbox(
-    bbox_vertices: np.ndarray,
-    part_ids: np.ndarray,
-    motion_hierarchy: List[Tuple[int, int]],
-    is_part_revolute: np.ndarray,
-    is_part_prismatic: np.ndarray,
-    revolute_plucker: np.ndarray,
-    revolute_range: np.ndarray,
-    prismatic_axis: np.ndarray,
-    prismatic_range: np.ndarray,
-    articulation_state: Union[float, np.ndarray],  # Value between 0 and 1
-    rotation_origin: Optional[np.ndarray] = None,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """
-    Articulate bbox vertices based on given articulation state.
-    
-    Args:
-        articulation_state: Value between 0 (low limit) and 1 (high limit)
-    
-    Returns:
-        Tuple of (articulated_xyz, articulated_revolute_plucker, articulated_prismatic_axis)
-    """
-    articulated_revolute_plucker = revolute_plucker.copy()
-    articulated_prismatic_axis = prismatic_axis.copy()
-    articulated_revolute_range = revolute_range.copy()
-    articulated_prismatic_range = prismatic_range.copy()
-
-    part_transformations = [[] for _ in range(len(np.unique(part_ids)))]
-    if len(motion_hierarchy) == 0:
-        return part_transformations
-    
-    part_order = get_part_order_from_root(motion_hierarchy)
-    # reverse part order
-    part_order = part_order[::-1]
-
-    for pid in part_order:
-        if pid not in part_ids:
-            continue
-        affected_part_ids = get_subtree_part_ids(motion_hierarchy, pid)
-        applied_tramsformation_matrix = np.eye(4, dtype=np.float32)
-        applied_rotation_axis_origin = np.array([np.nan, np.nan, np.nan], dtype=np.float32)
-        applied_transformation_type = "none"
-        children_idxs = affected_part_ids
-
-        if is_part_revolute[pid]:
-            low_limit, high_limit = articulated_revolute_range[pid]
-            part_articulation_state = articulation_state if isinstance(articulation_state, float) else articulation_state[pid]
-            # Interpolate between low and high limits
-            angle = part_articulation_state * (high_limit - low_limit) # check if this is radian 
-            axis, origin = plucker_to_axis_point(articulated_revolute_plucker[pid])
-            transform_matrix = plucker_to_4x4_transform_matrix(articulated_revolute_plucker[pid], angle)
-            rotation_axis_origin = origin if rotation_origin is None else rotation_origin[pid]
-            applied_tramsformation_matrix[:3, :3] = transform_matrix[:3, :3]
-            applied_rotation_axis_origin = rotation_axis_origin
-            applied_transformation_type = "rotation"
-            
-        
-        elif is_part_prismatic[pid]:
-            low_limit, high_limit = prismatic_range[pid]
-            part_articulation_state = articulation_state if isinstance(articulation_state, float) else articulation_state[pid]
-            # Interpolate between low and high limits
-            displacement = part_articulation_state * (high_limit - low_limit)
-            articulated_prismatic_range[pid] = np.array([low_limit - displacement, high_limit - displacement])
-            paxis = articulated_prismatic_axis[pid]
-
-            translation = paxis * displacement
-            applied_tramsformation_matrix[:3, 3] = translation
-            applied_transformation_type = "translation"
-        
-        if not applied_transformation_type == "none":
-            record = {
-                "type": applied_transformation_type,
-                "matrix": applied_tramsformation_matrix,
-                "rotation_axis_origin": applied_rotation_axis_origin
-            }
-            for child_idx in list(set([pid] + children_idxs)):
-                # part_transformations[child_idx].append(record)
-                # turn part_id to index
-                if child_idx not in part_ids:
-                    continue
-                try:
-                    child_idx_index = np.where(np.unique(part_ids) == child_idx)[0][0]
-                    part_transformations[child_idx_index].append(record)
-                except:
-                    breakpoint()
-
-
-    return part_transformations

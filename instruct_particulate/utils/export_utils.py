@@ -1,12 +1,13 @@
-import numpy as np
 import json
 import os
 import re
+
+import numpy as np
 import trimesh
 
 from instruct_particulate.utils.articulation_utils import (
     compute_part_transforms,
-    plucker_to_axis_point
+    plucker_to_axis_point,
 )
 
 
@@ -87,7 +88,6 @@ def export_animated_glb_file(
     """
     import tempfile
     from pygltflib import GLTF2, Animation, AnimationChannel, AnimationSampler, Accessor, BufferView
-    import os
     
     # Step 1: Export base mesh using trimesh (which handles textures/UVs correctly)
     # Create a Scene with all parts and axes
@@ -655,7 +655,7 @@ def export_urdf(
 
     # Prepare URDF string
     urdf_lines = []
-    urdf_lines.append(f'<?xml version="1.0"?>')
+    urdf_lines.append('<?xml version="1.0"?>')
     urdf_lines.append(f'<robot name="{name}">')
     
     # Process each part
@@ -674,26 +674,26 @@ def export_urdf(
         link_name = resolved_link_names[int(pid)]
         
         urdf_lines.append(f'  <link name="{link_name}">')
-        urdf_lines.append(f'    <visual>')
-        urdf_lines.append(f'      <origin xyz="0 0 0" rpy="0 0 0"/>')
-        urdf_lines.append(f'      <geometry>')
+        urdf_lines.append('    <visual>')
+        urdf_lines.append('      <origin xyz="0 0 0" rpy="0 0 0"/>')
+        urdf_lines.append('      <geometry>')
         urdf_lines.append(f'        <mesh filename="./meshes/{mesh_filename}"/>')
-        urdf_lines.append(f'      </geometry>')
+        urdf_lines.append('      </geometry>')
         urdf_lines.append(f'      <material name="material_{pid}">')
-        urdf_lines.append(f'        <color rgba="0.8 0.8 0.8 1.0"/>')
-        urdf_lines.append(f'      </material>')
-        urdf_lines.append(f'    </visual>')
-        urdf_lines.append(f'    <collision>')
-        urdf_lines.append(f'      <origin xyz="0 0 0" rpy="0 0 0"/>')
-        urdf_lines.append(f'      <geometry>')
+        urdf_lines.append('        <color rgba="0.8 0.8 0.8 1.0"/>')
+        urdf_lines.append('      </material>')
+        urdf_lines.append('    </visual>')
+        urdf_lines.append('    <collision>')
+        urdf_lines.append('      <origin xyz="0 0 0" rpy="0 0 0"/>')
+        urdf_lines.append('      <geometry>')
         urdf_lines.append(f'        <mesh filename="./meshes/{mesh_filename}"/>')
-        urdf_lines.append(f'      </geometry>')
-        urdf_lines.append(f'    </collision>')
-        urdf_lines.append(f'    <inertial>')
-        urdf_lines.append(f'      <mass value="1.0"/>')
-        urdf_lines.append(f'      <inertia ixx="0.1" ixy="0" ixz="0" iyy="0.1" iyz="0" izz="0.1"/>')
-        urdf_lines.append(f'    </inertial>')
-        urdf_lines.append(f'  </link>')
+        urdf_lines.append('      </geometry>')
+        urdf_lines.append('    </collision>')
+        urdf_lines.append('    <inertial>')
+        urdf_lines.append('      <mass value="1.0"/>')
+        urdf_lines.append('      <inertia ixx="0.1" ixy="0" ixz="0" iyy="0.1" iyz="0" izz="0.1"/>')
+        urdf_lines.append('    </inertial>')
+        urdf_lines.append('  </link>')
         
     # Joints
     for pid in unique_part_ids:
@@ -731,169 +731,11 @@ def export_urdf(
             if j_type != "fixed":
                 urdf_lines.append(f'    <axis xyz="{axis[0]:.6f} {axis[1]:.6f} {axis[2]:.6f}"/>')
                 urdf_lines.append(f'    <limit lower="{lower:.6f}" upper="{upper:.6f}" effort="1000" velocity="100"/>')
-            urdf_lines.append(f'  </joint>')
+            urdf_lines.append('  </joint>')
             
-    urdf_lines.append(f'</robot>')
+    urdf_lines.append('</robot>')
     
     with open(output_path, 'w') as f:
         f.write('\n'.join(urdf_lines))
         
     print(f"Exported URDF to {output_path}")
-
-
-def export_mjcf(
-    mesh_parts,
-    unique_part_ids,
-    motion_hierarchy,
-    is_part_revolute,
-    is_part_prismatic,
-    revolute_plucker,
-    revolute_range,
-    prismatic_axis,
-    prismatic_range,
-    output_path,
-    name="robot",
-    link_names=None,
-):
-    import os
-    
-    mjcf_dir = os.path.dirname(output_path)
-    os.makedirs(mjcf_dir, exist_ok=True)
-    mesh_dir = os.path.join(mjcf_dir, "meshes")
-    os.makedirs(mesh_dir, exist_ok=True)
-    
-    # Identify parents and children
-    unique_part_ids_set = set(unique_part_ids)
-    parent_map = {}
-    children_map = {pid: [] for pid in unique_part_ids}
-    for p, c in motion_hierarchy:
-        # Filter out hierarchy edges where parts don't exist in the mesh
-        if p not in unique_part_ids_set or c not in unique_part_ids_set:
-            continue
-            
-        parent_map[c] = p
-        if p in children_map:
-            children_map[p].append(c)
-        else:
-            children_map[p] = [c]
-
-    # Find roots
-    roots = []
-    for pid in unique_part_ids:
-        if pid not in parent_map:
-            roots.append(pid)
-    resolved_link_names = _resolve_link_names(unique_part_ids, link_names=link_names)
-            
-    # Determine local frame origins for each link (in World Coordinates)
-    link_origins_world = {}
-    
-    for i, pid in enumerate(unique_part_ids):
-        if pid in roots:
-            link_origins_world[pid] = np.zeros(3)
-        elif is_part_revolute[pid]:
-            # Revolute: Origin at point on axis
-            axis, point = plucker_to_axis_point(revolute_plucker[pid])
-            link_origins_world[pid] = point
-        elif is_part_prismatic[pid]:
-            # Prismatic: Origin at Centroid of mesh
-            link_origins_world[pid] = mesh_parts[i].vertices.mean(axis=0)
-        else:
-            # Fixed/Other
-            link_origins_world[pid] = mesh_parts[i].vertices.mean(axis=0)
-
-    # Save meshes and prepare assets
-    asset_lines = []
-    asset_lines.append(f'  <asset>')
-    
-    for i, pid in enumerate(unique_part_ids):
-        mesh = mesh_parts[i]
-        origin = link_origins_world[pid]
-        
-        # Save mesh (centered at local origin)
-        mesh_local = mesh.copy()
-        mesh_local.vertices -= origin
-        
-        mesh_filename = f"part_{pid}.obj"
-        mesh_path = os.path.join(mesh_dir, mesh_filename)
-        mesh_local.export(mesh_path)
-        
-        asset_lines.append(f'    <mesh name="mesh_part_{pid}" file="meshes/{mesh_filename}"/>')
-        
-    asset_lines.append(f'  </asset>')
-    
-    # Recursive function to build body hierarchy
-    def build_body_xml(pid, parent_pid=None, indent="    "):
-        lines = []
-        
-        # Calculate position relative to parent
-        origin = link_origins_world[pid]
-        if parent_pid is not None:
-            parent_origin = link_origins_world[parent_pid]
-            rel_pos = origin - parent_origin
-        else:
-            rel_pos = origin # Relative to world (0,0,0)
-            
-        lines.append(
-            f'{indent}<body name="{resolved_link_names[int(pid)]}" '
-            f'pos="{rel_pos[0]:.6f} {rel_pos[1]:.6f} {rel_pos[2]:.6f}">'
-        )
-        
-        # Add geom
-        lines.append(f'{indent}  <geom type="mesh" mesh="mesh_part_{pid}" name="visual_{pid}"/>')
-        # Optional: Add collision geom (using same mesh for now)
-        # lines.append(f'{indent}  <geom type="mesh" mesh="mesh_part_{pid}" name="collision_{pid}" group="3"/>')
-        
-        # Add joint if not root
-        if parent_pid is not None:
-            if is_part_revolute[pid]:
-                axis, _ = plucker_to_axis_point(revolute_plucker[pid])
-                axis = axis / (np.linalg.norm(axis) + 1e-6)
-                lower, upper = revolute_range[pid]
-                # Convert radians to degrees for MJCF default
-                lower_deg = np.degrees(lower)
-                upper_deg = np.degrees(upper)
-                lines.append(
-                    f'{indent}  <joint name="joint_{resolved_link_names[int(pid)]}" '
-                    f'type="hinge" axis="{axis[0]:.6f} {axis[1]:.6f} {axis[2]:.6f}" '
-                    f'range="{lower_deg:.6f} {upper_deg:.6f}" limited="true"/>'
-                )
-            elif is_part_prismatic[pid]:
-                axis = prismatic_axis[pid]
-                axis = axis / (np.linalg.norm(axis) + 1e-6)
-                lower, upper = prismatic_range[pid]
-                lines.append(
-                    f'{indent}  <joint name="joint_{resolved_link_names[int(pid)]}" '
-                    f'type="slide" axis="{axis[0]:.6f} {axis[1]:.6f} {axis[2]:.6f}" '
-                    f'range="{lower:.6f} {upper:.6f}" limited="true"/>'
-                )
-            else:
-                # Fixed joint (no joint element needed in MJCF, bodies are fused)
-                pass
-                
-        # Process children
-        for child_pid in children_map[pid]:
-            lines.extend(build_body_xml(child_pid, pid, indent + "  "))
-            
-        lines.append(f'{indent}</body>')
-        return lines
-
-    # Build full MJCF
-    mjcf_lines = []
-    mjcf_lines.append(f'<mujoco model="{name}">')
-    mjcf_lines.append(f'  <compiler angle="degree"/>') # Explicitly set angle unit
-    mjcf_lines.extend(asset_lines)
-    mjcf_lines.append(f'  <worldbody>')
-    
-    # Add floor (optional but good for visualization)
-    # mjcf_lines.append(f'    <geom name="floor" size="0 0 .05" type="plane" material="grid" condim="3"/>')
-    
-    for root_pid in roots:
-        mjcf_lines.extend(build_body_xml(root_pid, indent="    "))
-        
-    mjcf_lines.append(f'  </worldbody>')
-    mjcf_lines.append(f'</mujoco>')
-    
-    with open(output_path, 'w') as f:
-        f.write("\n".join(mjcf_lines))
-        
-    print(f"Exported MJCF to {output_path}")

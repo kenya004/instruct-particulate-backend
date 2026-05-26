@@ -12,19 +12,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Sequence
 
+from google import genai
+from google.genai import types
 import numpy as np
-import torch
+from openai import OpenAI
 import trimesh
-from PIL import Image, ImageDraw
 
-from instruct_particulate.utils.data_utils import (
-    normalize_mesh,
-    reorient_mesh_to_z_up,
-    up_dir_rotation_matrix,
-)
-from instruct_particulate.utils.inference_utils import (
-    prepare_inference_batch_from_mesh_with_prompts,
-)
 from instruct_particulate.utils.postprocessing_utils import resolve_point_prompt_face_ids
 
 
@@ -81,13 +74,6 @@ def _normalize_reasoning_effort(reasoning_effort: str | None) -> str:
     if normalized not in {"low", "medium", "high"}:
         return "medium"
     return normalized
-
-
-def _build_gemini_thinking_config(types: Any, reasoning_effort: str) -> Any | None:
-    try:
-        return types.ThinkingConfig(thinking_level=_normalize_reasoning_effort(reasoning_effort))
-    except Exception:
-        return None
 
 
 def _extract_openai_response_text(response: Any) -> str:
@@ -393,11 +379,6 @@ def _call_openai(
     api_key: str | None,
     reasoning_effort: str,
 ) -> dict[str, Any]:
-    try:
-        from openai import OpenAI
-    except ImportError as exc:
-        raise ImportError("OpenAI support requires the `openai` package to be installed.") from exc
-
     resolved_api_key = _get_openai_api_key(api_key)
     if not resolved_api_key:
         raise EnvironmentError("Missing OpenAI API key. Set OPENAI_API_KEY.")
@@ -460,11 +441,6 @@ def _call_gemini(
     resolved_api_key = _get_gemini_api_key(api_key)
     if not resolved_api_key:
         raise EnvironmentError("Missing Gemini API key. Set GEMINI_API_KEY or GOOGLE_API_KEY.")
-    try:
-        from google import genai
-        from google.genai import types
-    except ImportError as exc:
-        raise ImportError("Gemini support requires the `google-genai` package.") from exc
 
     client = genai.Client(api_key=resolved_api_key)
     parts: list[Any] = [types.Part.from_text(text=user_prompt)]
@@ -486,9 +462,9 @@ def _call_gemini(
         "response_mime_type": "application/json",
         "temperature": 0.1,
     }
-    thinking_config = _build_gemini_thinking_config(types, reasoning_effort)
-    if thinking_config is not None:
-        config_kwargs["thinking_config"] = thinking_config
+    config_kwargs["thinking_config"] = types.ThinkingConfig(
+        thinking_level=_normalize_reasoning_effort(reasoning_effort)
+    )
     response = client.models.generate_content(
         model=model_id,
         contents=contents,
@@ -727,87 +703,6 @@ def lift_point_prompts_from_rendered_views(
     }
 
 
-def save_point_prompt_visualization(
-    *,
-    mesh_path: Path,
-    point_prompts_world: np.ndarray,
-    output_path: Path,
-    blender_bin: str | os.PathLike[str] | None = None,
-) -> Path:
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    prompts_path = output_path.with_name(f"{output_path.stem}_points.json")
-    prompts_path.write_text(
-        json.dumps(np.asarray(point_prompts_world, dtype=np.float32).tolist()),
-        encoding="utf-8",
-    )
-    blender_path = resolve_blender_binary(blender_bin)
-    repo_root = Path(__file__).resolve().parents[2]
-    blender_script_path = repo_root / "scripts" / "export_point_prompt_visualization_blender.py"
-    if not blender_script_path.exists():
-        raise FileNotFoundError(
-            f"Point-prompt visualization Blender script does not exist: {blender_script_path}"
-        )
-    subprocess.run(
-        [
-            str(blender_path),
-            "-b",
-            "-P",
-            str(blender_script_path),
-            "--",
-            "--mesh-path",
-            str(mesh_path),
-            "--points-json",
-            str(prompts_path),
-            "--output-path",
-            str(output_path),
-        ],
-        check=True,
-    )
-    return output_path
-
-
-def save_2d_point_prompt_visualizations(
-    *,
-    rendered_views: Sequence[RenderedView],
-    lifted_prompt_records: Sequence[dict[str, Any]],
-    output_dir: Path,
-) -> list[Path]:
-    output_dir.mkdir(parents=True, exist_ok=True)
-    records_by_image_id: dict[int, list[dict[str, Any]]] = {}
-    for record in lifted_prompt_records:
-        records_by_image_id.setdefault(int(record["image_id"]), []).append(record)
-
-    colors = [
-        (255, 64, 64),
-        (64, 200, 255),
-        (255, 196, 64),
-        (120, 255, 120),
-        (255, 120, 220),
-        (180, 140, 255),
-    ]
-    saved_paths: list[Path] = []
-    for view in rendered_views:
-        image_records = records_by_image_id.get(int(view.image_id), [])
-        if not image_records:
-            continue
-        with Image.open(view.image_path) as image:
-            annotated = image.convert("RGBA")
-        draw = ImageDraw.Draw(annotated)
-        for record_idx, record in enumerate(image_records):
-            x, y = [int(v) for v in record["resolved_coordinate"]]
-            color = colors[record_idx % len(colors)]
-            radius = 8
-            draw.ellipse((x - radius, y - radius, x + radius, y + radius), outline=color, width=3)
-            draw.line((x - 12, y, x + 12, y), fill=color, width=2)
-            draw.line((x, y - 12, x, y + 12), fill=color, width=2)
-            label = f"{int(record['link_id'])}: {record['name']}"
-            draw.text((x + 12, y - 18), label, fill=color)
-        output_path = output_dir / f"view_{int(view.image_id):03d}.png"
-        annotated.save(output_path)
-        saved_paths.append(output_path)
-    return saved_paths
-
-
 def _denormalize_points(
     points: np.ndarray,
     *,
@@ -911,137 +806,4 @@ def save_auto_kinematics_artifacts(
         "raw_response_path": raw_response_path,
         "parsed_response_path": parsed_response_path,
         "lifted_prompts_path": lifted_prompts_path,
-    }
-
-
-def prepare_auto_kinematics_mesh_batch(
-    *,
-    mesh: trimesh.Trimesh,
-    original_mesh: trimesh.Trimesh,
-    render_mesh: trimesh.Trimesh | None = None,
-    output_dir: Path,
-    auto_kinematics_model_id: str,
-    azimuths_deg: Sequence[float],
-    system_prompt_path: Path,
-    num_shape_points: int,
-    num_query_points: int,
-    num_query_points_per_face_for_seg: int | None = None,
-    sharp_point_ratio: float,
-    device: torch.device,
-    center: np.ndarray,
-    scale: float,
-    render_mesh_space: str | None = None,
-    render_to_batch_rotation: np.ndarray | None = None,
-    reasoning_effort: str = "medium",
-    blender_bin: str | os.PathLike[str] | None = None,
-) -> dict[str, Any]:
-    auto_output_dir = output_dir / "auto_kinematics"
-    auto_output_dir.mkdir(parents=True, exist_ok=True)
-    renders_dir = auto_output_dir / "renders"
-    render_source_mesh = mesh if render_mesh is None else render_mesh
-    rendered_views = render_mesh_auto_kinematics_views(
-        render_source_mesh,
-        output_dir=renders_dir,
-        azimuths_deg=azimuths_deg,
-        blender_bin=blender_bin,
-    )
-    provider = detect_provider(auto_kinematics_model_id)
-    print(
-        f"Requesting auto kinematics from {provider} model {auto_kinematics_model_id} "
-        f"using {len(rendered_views)} rendered views"
-    )
-    raw_response = call_auto_kinematics_model(
-        model_id=auto_kinematics_model_id,
-        system_prompt_path=system_prompt_path,
-        rendered_views=rendered_views,
-        provider=provider,
-        reasoning_effort=reasoning_effort,
-    )
-    parsed_response = parse_auto_kinematics_response(raw_response)
-    print(f"Lifted {len(parsed_response['links'])} auto-kinematics links from model response")
-    lifted = lift_point_prompts_from_rendered_views(
-        links=parsed_response["links"],
-        rendered_views=rendered_views,
-    )
-    prepared_prompts = prepare_lifted_prompt_records_for_saving(
-        normalized_mesh=mesh,
-        lifted=lifted,
-        center=np.asarray(center, dtype=np.float32),
-        scale=float(scale),
-        render_to_model_rotation=render_to_batch_rotation,
-    )
-    prompt_points = np.asarray(prepared_prompts["point_prompts"], dtype=np.float32)
-    prompt_normals = np.asarray(prepared_prompts["point_prompt_normals"], dtype=np.float32)
-    prompt_face_ids = np.asarray(prepared_prompts["point_prompt_face_ids"], dtype=np.int64)
-    link_point_prompts = torch.from_numpy(prompt_points).float()
-    link_point_prompt_normals = torch.from_numpy(prompt_normals).float()
-    batch, query_face_indices = prepare_inference_batch_from_mesh_with_prompts(
-        mesh,
-        num_shape_points=num_shape_points,
-        num_query_points=num_query_points,
-        num_query_points_per_face_for_seg=num_query_points_per_face_for_seg,
-        sharp_point_ratio=sharp_point_ratio,
-        link_names=parsed_response["link_names"],
-        joint_specs=parsed_response["joint_specs"],
-        device=device,
-        link_point_prompts=link_point_prompts,
-        link_point_prompt_normals=link_point_prompt_normals,
-        require_unique_link_names=False,
-    )
-    point_prompts_world = np.asarray(prepared_prompts["point_prompts_world"], dtype=np.float32)
-    visualization_mesh_path = auto_output_dir / "_auto_kinematics_visualization_mesh.glb"
-    visualization_mesh = original_mesh.copy()
-    visualization_export_transform = np.eye(4, dtype=np.float32)
-    visualization_export_transform[:3, :3] = up_dir_rotation_matrix("+Z", "+Y")
-    visualization_mesh.apply_transform(visualization_export_transform)
-    visualization_mesh.export(visualization_mesh_path)
-    prompt_visualization_path = save_point_prompt_visualization(
-        mesh_path=visualization_mesh_path,
-        point_prompts_world=point_prompts_world,
-        output_path=auto_output_dir / "point_prompts_visualization.glb",
-        blender_bin=blender_bin,
-    )
-    saved_paths = save_auto_kinematics_artifacts(
-        output_dir=auto_output_dir,
-        raw_response=raw_response,
-        parsed_response=parsed_response,
-        lifted_prompt_records=prepared_prompts["records"],
-        center=np.asarray(center, dtype=np.float32),
-        scale=float(scale),
-    )
-    point_prompt_overlay_paths = save_2d_point_prompt_visualizations(
-        rendered_views=rendered_views,
-        lifted_prompt_records=prepared_prompts["records"],
-        output_dir=auto_output_dir / "point_prompt_overlays",
-    )
-    metadata = {
-        "auto_kinematics_model_id": auto_kinematics_model_id,
-        "auto_kinematics_provider": provider,
-        "reasoning_effort": _normalize_reasoning_effort(reasoning_effort),
-        "system_prompt_path": str(system_prompt_path),
-        "blender_bin": str(resolve_blender_binary(blender_bin)),
-        "render_dir": str(renders_dir),
-        "azimuths_deg": [float(azimuth) for azimuth in azimuths_deg],
-        "elevation_deg": float(DEFAULT_RENDER_ELEVATION_DEG),
-        "pitch_deg": float(DEFAULT_RENDER_PITCH_DEG),
-        "render_distance": float(DEFAULT_RENDER_DISTANCE),
-        "render_resolution": int(DEFAULT_RENDER_RESOLUTION),
-        "render_mesh_space": (
-            str(render_mesh_space)
-            if render_mesh_space is not None
-            else ("batch_mesh_space" if render_mesh is None else "render_mesh_pre_normalization")
-        ),
-        "render_normalized_in_blender": True,
-        "visualization_mesh_path": str(visualization_mesh_path),
-        "prompt_visualization_path": str(prompt_visualization_path),
-        "point_prompt_overlay_paths": [str(path) for path in point_prompt_overlay_paths],
-        **{key: str(path) for key, path in saved_paths.items()},
-    }
-    return {
-        "batch": batch,
-        "query_face_indices": query_face_indices,
-        "link_names": parsed_response["link_names"],
-        "joint_specs": parsed_response["joint_specs"],
-        "metadata": metadata,
-        "link_point_prompt_face_ids": prompt_face_ids.astype(np.int64, copy=False),
     }

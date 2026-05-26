@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import argparse
 import asyncio
 import hashlib
 import json
@@ -14,7 +13,9 @@ from pathlib import Path
 from typing import Any
 
 import gradio as gr
+from huggingface_hub import hf_hub_download, snapshot_download
 import numpy as np
+import spaces
 import torch
 import torch.nn.functional as F
 
@@ -36,11 +37,6 @@ def _suppress_asyncio_invalid_fd_finalizer_noise() -> None:
 
 
 _suppress_asyncio_invalid_fd_finalizer_noise()
-
-try:
-    import spaces
-except ImportError:
-    spaces = None
 
 from infer import (
     build_base_metadata,
@@ -109,6 +105,8 @@ UP_DIR_CHOICES = ["+X", "-X", "+Y", "-Y", "+Z", "-Z"]
 AUTO_KINEMATICS_MODEL_ID = "gemini-3.5-flash"
 AUTO_KINEMATICS_REASONING_EFFORT = "medium"
 AUTO_KINEMATICS_CACHE_VERSION = 2
+INFERENCE_NO_POINT_PROMPT = True
+INFERENCE_EXPORT_URDF_DURING_WRITE = False
 
 DEFAULT_KINEMATIC_TREE = {
     "links": [
@@ -3392,33 +3390,6 @@ def _point_prompt_json_from_normalized_prompts(
     return json.dumps({"prompts": prompts}, indent=2)
 
 
-def _make_inference_args(
-    *,
-    output_dir: Path,
-    num_query_points: int,
-    num_query_points_per_face_for_seg: int | None,
-    query_batch_size: int,
-    animation_frames: int,
-    strict_face_postprocess: bool,
-    enforce_connectivity_per_part: bool,
-    joint_decoding_confidence_temperature: float,
-) -> argparse.Namespace:
-    return argparse.Namespace(
-        output_dir=output_dir,
-        num_query_points=int(num_query_points),
-        num_query_points_per_face_for_seg=num_query_points_per_face_for_seg,
-        query_batch_size=int(query_batch_size),
-        animation_frames=int(animation_frames),
-        strict_face_postprocess=bool(strict_face_postprocess),
-        enforce_connectivity_per_part=bool(enforce_connectivity_per_part),
-        no_point_prompt=True,
-        joint_decoding_confidence_temperature=float(
-            joint_decoding_confidence_temperature
-        ),
-        export_urdf=False,
-    )
-
-
 def _zip_directory(directory: Path) -> Path:
     zip_path = directory.with_suffix(".zip")
     if zip_path.exists():
@@ -3458,13 +3429,6 @@ def _ensure_instruct_checkpoint(checkpoint_path: Path) -> Path:
     if checkpoint_path.exists():
         return checkpoint_path
     checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        from huggingface_hub import hf_hub_download
-    except ImportError as exc:
-        raise FileNotFoundError(
-            f"Missing checkpoint: {checkpoint_path}. Install huggingface_hub or "
-            f"provide the checkpoint locally."
-        ) from exc
 
     downloaded_path = hf_hub_download(
         repo_id=CHECKPOINT_REPO_ID,
@@ -3492,10 +3456,6 @@ def _prefetch_clip_text_assets(config: dict[str, Any]) -> None:
 
     clip_model_name = str(model_config.get("clip_model_name", "openai/clip-vit-large-patch14"))
     print(f"Prefetching CLIP text assets: {clip_model_name}")
-    try:
-        from huggingface_hub import snapshot_download
-    except ImportError as exc:
-        raise ImportError("huggingface_hub is required to prefetch CLIP assets") from exc
 
     snapshot_download(
         repo_id=clip_model_name,
@@ -3552,8 +3512,6 @@ def _preload_weights_enabled() -> bool:
 
 
 def _spaces_gpu(fn):
-    if spaces is None:
-        return fn
     duration = max(1, min(int(os.environ.get("SPACES_GPU_DURATION", "10")), 10))
     return spaces.GPU(duration=duration)(fn)
 
@@ -3697,11 +3655,6 @@ class InstructParticulateApp:
             if cached_upright_previews is not None
             else _upright_rendering_preview_paths()
         )
-        preview_status = (
-            "Using cached upright orientation previews."
-            if cached_upright_previews is not None
-            else "Rendering upright orientation previews..."
-        )
         yield (
             str(mesh_path),
             mesh_hash,
@@ -3765,7 +3718,7 @@ class InstructParticulateApp:
                 mesh=mesh,
                 mesh_hash=mesh_hash,
             )
-        except Exception as exc:
+        except Exception:
             traceback.print_exc()
             yield (
                 str(mesh_path),
@@ -3990,35 +3943,33 @@ class InstructParticulateApp:
             mesh_hash = str(mesh_hash_value or _mesh_file_sha256(mesh_path))
             output_dir = _timestamped_mesh_output_dir(self.output_root, mesh_hash)
             output_dir.mkdir(parents=True, exist_ok=True)
-            args = _make_inference_args(
-                output_dir=output_dir,
-                num_query_points=int(num_query_points),
-                num_query_points_per_face_for_seg=(
-                    None
-                    if int(num_query_points_per_face_for_seg) <= 0
-                    else int(num_query_points_per_face_for_seg)
-                ),
-                query_batch_size=int(query_batch_size),
-                animation_frames=int(animation_frames),
-                strict_face_postprocess=bool(strict_face_postprocess),
-                enforce_connectivity_per_part=bool(enforce_connectivity_per_part),
-                joint_decoding_confidence_temperature=float(
-                    joint_decoding_confidence_temperature
-                ),
+            num_query_points_value = int(num_query_points)
+            num_query_points_per_face_for_seg_value = (
+                None
+                if int(num_query_points_per_face_for_seg) <= 0
+                else int(num_query_points_per_face_for_seg)
+            )
+            query_batch_size_value = int(query_batch_size)
+            animation_frames_value = int(animation_frames)
+            strict_face_postprocess_value = bool(strict_face_postprocess)
+            enforce_connectivity_per_part_value = bool(enforce_connectivity_per_part)
+            joint_decoding_confidence_temperature_value = float(
+                joint_decoding_confidence_temperature
             )
 
             model, device = self._ensure_model_loaded()
             mesh_geometry = self._prepare_geometry(mesh_path, canonical_up)
             segmentation_num_query_points = self._segmentation_num_query_points(
-                args,
-                mesh_geometry.normalized_mesh,
+                num_query_points=num_query_points_value,
+                num_query_points_per_face_for_seg=num_query_points_per_face_for_seg_value,
+                normalized_mesh=mesh_geometry.normalized_mesh,
             )
             if point_prompt_arrays is None:
                 batch, query_face_indices = prepare_inference_batch_from_mesh(
                     mesh_geometry.normalized_mesh,
                     num_shape_points=self.num_shape_points,
                     num_query_points=segmentation_num_query_points,
-                    num_query_points_per_face_for_seg=args.num_query_points_per_face_for_seg,
+                    num_query_points_per_face_for_seg=num_query_points_per_face_for_seg_value,
                     sharp_point_ratio=self.sharp_point_ratio,
                     link_names=link_names,
                     joint_specs=joint_specs,
@@ -4035,7 +3986,7 @@ class InstructParticulateApp:
                     mesh_geometry.normalized_mesh,
                     num_shape_points=self.num_shape_points,
                     num_query_points=segmentation_num_query_points,
-                    num_query_points_per_face_for_seg=args.num_query_points_per_face_for_seg,
+                    num_query_points_per_face_for_seg=num_query_points_per_face_for_seg_value,
                     sharp_point_ratio=self.sharp_point_ratio,
                     link_names=link_names,
                     joint_specs=joint_specs,
@@ -4051,8 +4002,8 @@ class InstructParticulateApp:
 
             output = run_batched_model_inference(
                 model,
-                query_batch_size=int(args.query_batch_size),
-                no_point_prompt_for_unique_text=bool(args.no_point_prompt),
+                query_batch_size=query_batch_size_value,
+                no_point_prompt_for_unique_text=INFERENCE_NO_POINT_PROMPT,
                 decode_joint_parameters=False,
                 **batch,
             )
@@ -4078,15 +4029,13 @@ class InstructParticulateApp:
             )
             payload = {
                 "args": {
-                    "num_query_points": int(args.num_query_points),
-                    "num_query_points_per_face_for_seg": args.num_query_points_per_face_for_seg,
-                    "query_batch_size": int(args.query_batch_size),
-                    "animation_frames": int(args.animation_frames),
-                    "strict_face_postprocess": bool(args.strict_face_postprocess),
-                    "enforce_connectivity_per_part": bool(args.enforce_connectivity_per_part),
-                    "joint_decoding_confidence_temperature": float(
-                        args.joint_decoding_confidence_temperature
-                    ),
+                    "num_query_points": num_query_points_value,
+                    "num_query_points_per_face_for_seg": num_query_points_per_face_for_seg_value,
+                    "query_batch_size": query_batch_size_value,
+                    "animation_frames": animation_frames_value,
+                    "strict_face_postprocess": strict_face_postprocess_value,
+                    "enforce_connectivity_per_part": enforce_connectivity_per_part_value,
+                    "joint_decoding_confidence_temperature": joint_decoding_confidence_temperature_value,
                 },
                 "mesh_path": str(mesh_path),
                 "up_dir": str(canonical_up),
@@ -4125,22 +4074,6 @@ class InstructParticulateApp:
         mesh_path = Path(str(payload["mesh_path"]))
         canonical_up = str(payload["up_dir"])
         output_dir = Path(str(payload["output_dir"]))
-        args = _make_inference_args(
-            output_dir=output_dir,
-            num_query_points=int(args_payload["num_query_points"]),
-            num_query_points_per_face_for_seg=args_payload[
-                "num_query_points_per_face_for_seg"
-            ],
-            query_batch_size=int(args_payload["query_batch_size"]),
-            animation_frames=int(args_payload["animation_frames"]),
-            strict_face_postprocess=bool(args_payload["strict_face_postprocess"]),
-            enforce_connectivity_per_part=bool(
-                args_payload["enforce_connectivity_per_part"]
-            ),
-            joint_decoding_confidence_temperature=float(
-                args_payload["joint_decoding_confidence_temperature"]
-            ),
-        )
         mesh_geometry = self._prepare_geometry(mesh_path, canonical_up)
         link_names = [str(link_name) for link_name in payload["link_names"]]
         links_for_query_visualization = [
@@ -4150,9 +4083,9 @@ class InstructParticulateApp:
         batch = payload["batch"]
         visualization_link_point_prompts_world, visualization_link_point_prompt_ids = (
             resolve_visualized_batch_link_point_prompts(
-                args=args,
                 batch=batch,
                 links=links_for_query_visualization,
+                no_point_prompt=INFERENCE_NO_POINT_PROMPT,
                 center=mesh_geometry.center,
                 scale=mesh_geometry.scale,
             )
@@ -4183,8 +4116,8 @@ class InstructParticulateApp:
             ),
             query_face_indices=query_face_indices,
             input_part_ids=np.arange(len(link_names), dtype=np.int32),
-            strict=bool(args.strict_face_postprocess),
-            enforce_connectivity_per_part=bool(args.enforce_connectivity_per_part),
+            strict=bool(args_payload["strict_face_postprocess"]),
+            enforce_connectivity_per_part=bool(args_payload["enforce_connectivity_per_part"]),
         )
         motion_request = dict(payload)
         motion_request.pop("point_part_probabilities", None)
@@ -4211,34 +4144,22 @@ class InstructParticulateApp:
             mesh_path = Path(str(payload["mesh_path"]))
             canonical_up = str(payload["up_dir"])
             output_dir = Path(str(payload["output_dir"]))
-            args = _make_inference_args(
-                output_dir=output_dir,
-                num_query_points=int(args_payload["num_query_points"]),
-                num_query_points_per_face_for_seg=args_payload[
-                    "num_query_points_per_face_for_seg"
-                ],
-                query_batch_size=int(args_payload["query_batch_size"]),
-                animation_frames=int(args_payload["animation_frames"]),
-                strict_face_postprocess=bool(args_payload["strict_face_postprocess"]),
-                enforce_connectivity_per_part=bool(
-                    args_payload["enforce_connectivity_per_part"]
-                ),
-                joint_decoding_confidence_temperature=float(
-                    args_payload["joint_decoding_confidence_temperature"]
-                ),
-            )
             model, device = self._ensure_model_loaded()
             mesh_geometry = self._prepare_geometry(mesh_path, canonical_up)
             batch = _to_device_payload(payload["batch"], device)
             face_part_ids = np.asarray(payload["face_part_ids"], dtype=np.int32)
             motion_artifacts = compute_motion_prediction_artifacts(
-                args,
                 model=model,
                 batch=batch,
                 normalized_mesh=mesh_geometry.normalized_mesh,
                 face_part_ids=face_part_ids,
-                joint_refit_num_query_points=int(args.num_query_points),
+                joint_refit_num_query_points=int(args_payload["num_query_points"]),
                 num_links=len(payload["link_names"]),
+                query_batch_size=int(args_payload["query_batch_size"]),
+                no_point_prompt=INFERENCE_NO_POINT_PROMPT,
+                joint_decoding_confidence_temperature=float(
+                    args_payload["joint_decoding_confidence_temperature"]
+                ),
                 center=mesh_geometry.center,
                 scale=mesh_geometry.scale,
             )
@@ -4296,25 +4217,8 @@ class InstructParticulateApp:
         canonical_up = str(payload["up_dir"])
         output_dir = Path(str(payload["output_dir"]))
         visualization_path = Path(str(payload["visualization_path"]))
-        args = _make_inference_args(
-            output_dir=output_dir,
-            num_query_points=int(args_payload["num_query_points"]),
-            num_query_points_per_face_for_seg=args_payload[
-                "num_query_points_per_face_for_seg"
-            ],
-            query_batch_size=int(args_payload["query_batch_size"]),
-            animation_frames=int(args_payload["animation_frames"]),
-            strict_face_postprocess=bool(args_payload["strict_face_postprocess"]),
-            enforce_connectivity_per_part=bool(
-                args_payload["enforce_connectivity_per_part"]
-            ),
-            joint_decoding_confidence_temperature=float(
-                args_payload["joint_decoding_confidence_temperature"]
-            ),
-        )
         mesh_geometry = self._prepare_geometry(mesh_path, canonical_up)
         self._write_outputs(
-            args=args,
             mesh_path=mesh_path,
             up_dir=canonical_up,
             output_dir=output_dir,
@@ -4332,6 +4236,18 @@ class InstructParticulateApp:
             prediction=payload["prediction"],
             segmentation_num_query_points=int(payload["segmentation_num_query_points"]),
             visualization_path=visualization_path,
+            num_query_points=int(args_payload["num_query_points"]),
+            num_query_points_per_face_for_seg=args_payload[
+                "num_query_points_per_face_for_seg"
+            ],
+            query_batch_size=int(args_payload["query_batch_size"]),
+            animation_frames=int(args_payload["animation_frames"]),
+            enforce_connectivity_per_part=bool(
+                args_payload["enforce_connectivity_per_part"]
+            ),
+            joint_decoding_confidence_temperature=float(
+                args_payload["joint_decoding_confidence_temperature"]
+            ),
         )
         return (
             str(output_dir / "animated_textured.glb"),
@@ -4346,15 +4262,17 @@ class InstructParticulateApp:
 
     def _segmentation_num_query_points(
         self,
-        args: argparse.Namespace,
+        *,
+        num_query_points: int,
+        num_query_points_per_face_for_seg: int | None,
         normalized_mesh: Any,
     ) -> int:
-        if args.num_query_points_per_face_for_seg is None:
-            return int(args.num_query_points)
+        if num_query_points_per_face_for_seg is None:
+            return int(num_query_points)
         num_faces = int(np.asarray(normalized_mesh.faces).shape[0])
         if num_faces <= 0:
             raise ValueError("Cannot sample query points for a mesh with no faces.")
-        return int(args.num_query_points_per_face_for_seg) * num_faces
+        return int(num_query_points_per_face_for_seg) * num_faces
 
     def export_urdf_package(self, output_dir_value: Any) -> tuple[Any, str]:
         if not output_dir_value:
@@ -4463,7 +4381,6 @@ class InstructParticulateApp:
     def _write_outputs(
         self,
         *,
-        args: argparse.Namespace,
         mesh_path: Path,
         up_dir: str,
         output_dir: Path,
@@ -4475,6 +4392,12 @@ class InstructParticulateApp:
         prediction: dict[str, Any],
         segmentation_num_query_points: int,
         visualization_path: Path,
+        num_query_points: int,
+        num_query_points_per_face_for_seg: int | None,
+        query_batch_size: int,
+        animation_frames: int,
+        enforce_connectivity_per_part: bool,
+        joint_decoding_confidence_temperature: float,
     ) -> None:
         motion_output = prediction["motion_output"]
         joint_refit_sampling = prediction["joint_refit_sampling"]
@@ -4524,7 +4447,6 @@ class InstructParticulateApp:
             scale=mesh_geometry.scale,
         )
         unique_part_ids = save_articulated_mesh_outputs(
-            args,
             output_dir=output_dir,
             original_mesh=mesh_geometry.original_mesh,
             face_part_ids=face_part_ids,
@@ -4535,6 +4457,8 @@ class InstructParticulateApp:
             revolute_range=motion_arrays_world["revolute_range"],
             prismatic_axis=prismatic_axis_world,
             prismatic_range=motion_arrays_world["prismatic_range"],
+            animation_frames=animation_frames,
+            export_urdf_enabled=INFERENCE_EXPORT_URDF_DURING_WRITE,
             urdf_name=mesh_path.stem,
             link_names=link_names,
         )
@@ -4554,7 +4478,6 @@ class InstructParticulateApp:
         )
 
         metadata = build_base_metadata(
-            args,
             mode="mesh",
             input_path=mesh_path,
             run_dir=self.run_dir,
@@ -4562,7 +4485,12 @@ class InstructParticulateApp:
             device=self.device,
             num_shape_points=self.num_shape_points,
             segmentation_num_query_points=segmentation_num_query_points,
-            joint_refit_num_query_points=int(args.num_query_points),
+            joint_refit_num_query_points=int(num_query_points),
+            num_query_points_per_face_for_seg=num_query_points_per_face_for_seg,
+            query_batch_size=query_batch_size,
+            no_point_prompt=INFERENCE_NO_POINT_PROMPT,
+            enforce_connectivity_per_part=enforce_connectivity_per_part,
+            joint_decoding_confidence_temperature=joint_decoding_confidence_temperature,
             sharp_point_ratio=self.sharp_point_ratio,
         ) | {
             "link_names": link_names,

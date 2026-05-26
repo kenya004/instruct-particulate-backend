@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-import argparse
 import importlib
 import os
 import sys
 from contextlib import nullcontext
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Optional, Tuple
-from urllib.request import urlretrieve
 
+from huggingface_hub import hf_hub_download
 import torch
 from torch import Tensor, nn
 
@@ -17,10 +17,6 @@ PARTFIELD_FEATURE_DIM = 448
 _PARTFIELD_SDF_CHANNELS = 64
 _PARTFIELD_CHECKPOINT_REPO_ID = "mikaelaangel/partfield-ckpt"
 _PARTFIELD_CHECKPOINT_FILENAME = "model_objaverse.ckpt"
-_PARTFIELD_CHECKPOINT_URL = (
-    "https://huggingface.co/"
-    f"{_PARTFIELD_CHECKPOINT_REPO_ID}/resolve/main/{_PARTFIELD_CHECKPOINT_FILENAME}"
-)
 _PARTFIELD_ROOT = Path(__file__).resolve().parents[2] / "partfield"
 _PARTFIELD_CHECKPOINT_PATH = _PARTFIELD_ROOT / "model" / _PARTFIELD_CHECKPOINT_FILENAME
 _PARTFIELD_CONFIG_PATH = _PARTFIELD_ROOT / "configs" / "final" / "demo.yaml"
@@ -38,20 +34,13 @@ def _ensure_partfield_checkpoint(checkpoint_path: Path) -> Path:
     if checkpoint_path.exists():
         return checkpoint_path
     checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        from huggingface_hub import hf_hub_download
-
-        hf_hub_download(
-            repo_id=_PARTFIELD_CHECKPOINT_REPO_ID,
-            filename=_PARTFIELD_CHECKPOINT_FILENAME,
-            local_dir=str(checkpoint_path.parent),
-            local_dir_use_symlinks=False,
-            token=os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_HUB_TOKEN"),
-        )
-    except ImportError:
-        pass
-    if not checkpoint_path.exists():
-        urlretrieve(_PARTFIELD_CHECKPOINT_URL, checkpoint_path)
+    hf_hub_download(
+        repo_id=_PARTFIELD_CHECKPOINT_REPO_ID,
+        filename=_PARTFIELD_CHECKPOINT_FILENAME,
+        local_dir=str(checkpoint_path.parent),
+        local_dir_use_symlinks=False,
+        token=os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_HUB_TOKEN"),
+    )
     if not checkpoint_path.exists():
         raise FileNotFoundError(f"Could not download PartField checkpoint to {checkpoint_path}")
     return checkpoint_path
@@ -99,7 +88,7 @@ class PartFieldFeatureExtractor:
     def _load_model(self, device: torch.device) -> nn.Module:
         self._ensure_imports_loaded()
         cfg = self._partfield_setup(
-            argparse.Namespace(
+            SimpleNamespace(
                 config_file=str(self.partfield_config_path),
                 opts=[],
             ),

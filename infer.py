@@ -1,8 +1,5 @@
-import argparse
 from dataclasses import dataclass
-import gc
 from pathlib import Path
-import traceback
 from typing import Any
 
 import numpy as np
@@ -11,61 +8,26 @@ import torch.nn.functional as F
 
 from instruct_particulate.model import Particulate2ArticulationModel
 from instruct_particulate.utils.data_utils import (
-    canonicalize_up_dir,
     load_trimesh,
     normalize_mesh,
     up_dir_rotation_matrix,
     reorient_mesh_to_z_up,
 )
-from instruct_particulate.utils.auto_kinematics_utils import (
-    DEFAULT_AUTO_KINEMATICS_AZIMUTHS,
-    prepare_auto_kinematics_mesh_batch,
-)
 from instruct_particulate.utils.export_utils import export_urdf
 from instruct_particulate.utils.inference_utils import (
     axis_point_to_plucker_torch,
-    build_predicted_joint_records_from_links_and_joints,
-    build_predicted_kinematic_records,
-    build_predicted_kinematic_records_from_links_and_joints,
-    configure_runtime_environment,
     denormalize_motion_parameters,
     estimate_prismatic_limit_torch,
     estimate_revolute_limit_torch,
     fit_axis_to_closest_points_torch,
-    load_model_checkpoint_for_inference,
-    load_run_config,
     motion_arrays_from_model_output,
-    prepare_inference_batch_from_mesh,
-    prepare_inference_batch_from_mesh_with_prompts,
-    prepare_inference_batch_from_meta_root,
     prismatic_directions_from_plucker,
-    prompt_for_link_names_and_joints,
-    range_forward_masks_by_child_link,
-    resolve_checkpoint_path,
-    resolve_input_mode,
-    resolve_inference_sampling_config,
-    resolve_num_query_points,
     run_joint_refit_from_face_seg,
-    run_batched_model_inference,
-    suppress_unforwarded_joint_ranges,
     write_json,
-    zero_unforwarded_link_ranges,
-)
-from instruct_particulate.utils.meta_root_utils import (
-    is_supported_meta_root,
-    load_meta_root_annotation,
-)
-from instruct_particulate.utils.saved_auto_kinematics_utils import (
-    SavedAutoKinematicsRoot,
-    is_saved_auto_kinematics_root,
-    load_saved_auto_kinematics_root,
 )
 from instruct_particulate.utils.inference_visualization_utils import (
-    compute_link_geometric_mean_confidences,
     print_inference_summary,
     save_joint_overparam_visualization_from_model_output,
-    save_point_query_visualization,
-    save_predicted_point_query_visualization,
     save_segmented_visualizations,
     select_visualized_link_point_prompts,
 )
@@ -73,28 +35,6 @@ from instruct_particulate.utils.postprocessing_utils import (
     find_unrefined_part_ids_for_faces,
     refine_face_part_ids_for_inference,
 )
-
-
-_EVALUATION_IMPORT_ERROR: ImportError | None = None
-try:
-    from instruct_particulate.utils.evaluation_io import save_evaluation_prediction
-    from instruct_particulate.utils.evaluation_pipeline import (
-        DEFAULT_EVAL_NUM_POINTS,
-        existing_result_path_for_input,
-        export_and_evaluate_meta_root_prediction,
-        load_cached_sample_result,
-        per_object_result_path,
-        refresh_output_root_summaries,
-    )
-except ImportError as exc:
-    save_evaluation_prediction = None
-    DEFAULT_EVAL_NUM_POINTS = None
-    existing_result_path_for_input = None
-    export_and_evaluate_meta_root_prediction = None
-    load_cached_sample_result = None
-    per_object_result_path = None
-    refresh_output_root_summaries = None
-    _EVALUATION_IMPORT_ERROR = exc
 
 
 @dataclass(frozen=True)
@@ -108,230 +48,7 @@ class PreparedMeshGeometry:
     render_to_model_rotation: np.ndarray
 
 
-@dataclass(frozen=True)
-class PreparedMeshBatch:
-    batch: dict[str, Any]
-    query_face_indices: np.ndarray
-    link_names: list[str]
-    joint_specs: list[tuple[int, int, str]]
-    auto_kinematics_metadata: dict[str, Any]
-    link_point_prompt_face_ids: np.ndarray | None = None
-
-
 _INFER_OVERPARAM_AXIS_AABB_HALF_EXTENT_MIN = 1e-4
-
-
-def _parse_num_query_points_per_face_for_seg(value: str) -> int:
-    normalized_value = str(value).strip().lower()
-    if normalized_value in {"true", "yes", "on"}:
-        return 1
-    try:
-        parsed_value = int(normalized_value)
-    except ValueError as exc:
-        raise argparse.ArgumentTypeError(
-            "--num-query-points-per-face-for-seg expects a positive integer"
-        ) from exc
-    if parsed_value <= 0:
-        raise argparse.ArgumentTypeError(
-            "--num-query-points-per-face-for-seg expects a positive integer"
-        )
-    return parsed_value
-
-
-def _require_evaluation_dependencies() -> None:
-    if _EVALUATION_IMPORT_ERROR is not None:
-        raise ImportError(
-            "Evaluation dependencies are unavailable in this environment. "
-            "Run without --eval or install the missing evaluation packages."
-        ) from _EVALUATION_IMPORT_ERROR
-
-
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description=(
-            "Run articulated-part inference for a mesh or preprocessed meta-root export using a "
-            "saved training run."
-        ),
-        allow_abbrev=False,
-    )
-    parser.add_argument(
-        "input_path",
-        type=Path,
-        help=(
-            "Path to an input mesh, one preprocessed meta-root directory, one saved "
-            "auto-kinematics folder, or a directory whose immediate children are "
-            "preprocessed meta-root / saved auto-kinematics folders"
-        ),
-    )
-    parser.add_argument(
-        "run_dir",
-        type=Path,
-        help="Training run directory containing config and checkpoints",
-    )
-    parser.add_argument(
-        "--ckpt-idx",
-        type=str,
-        default=None,
-        help=(
-            "Checkpoint step to load. Defaults to the step_*.pt file with the largest step count. "
-            "Also accepts 'latest' or 'best'."
-        ),
-    )
-    parser.add_argument(
-        "--output-dir",
-        type=Path,
-        default=Path("./inference-results"),
-        help="Root directory used to save inference outputs",
-    )
-    parser.add_argument(
-        "--num-query-points",
-        type=int,
-        default=102400,
-        help=(
-            "Number of query points for the joint-refit pass. Also used for the "
-            "segmentation pass unless --num-query-points-per-face-for-seg is set."
-        ),
-    )
-    parser.add_argument(
-        "--num-query-points-per-face-for-seg",
-        type=_parse_num_query_points_per_face_for_seg,
-        nargs="?",
-        const=1,
-        default=3,
-        dest="num_query_points_per_face_for_seg",
-        metavar="N",
-        help=(
-            "For the first segmentation pass only, sample N query points uniformly inside "
-            "every mesh face instead of sampling --num-query-points uniformly over mesh "
-            "area. Passing the flag without N uses N=1. The second joint-refit pass still "
-            "uses --num-query-points."
-        ),
-    )
-    parser.add_argument(
-        "--query-batch-size",
-        type=int,
-        default=8192,
-        help="Number of query points to forward per batch.",
-    )
-    parser.add_argument(
-        "--joint-decoding-confidence-temperature",
-        type=float,
-        default=1.0,
-        help=(
-            "Temperature applied to segmentation softmax confidences before confidence-weighted "
-            "overparameterized joint refitting. Values below 1.0 sharpen the weights; values "
-            "above 1.0 flatten them."
-        ),
-    )
-    parser.add_argument(
-        "--animation-frames",
-        type=int,
-        default=50,
-        help="Number of frames to bake into the animated GLB output for mesh inputs.",
-    )
-    parser.add_argument(
-        "--strict-face-postprocess",
-        action="store_true",
-        help=(
-            "Use strict face-label refinement. Without this flag, the base non-strict path "
-            "keeps the unrefined face labels."
-        ),
-    )
-    parser.add_argument(
-        "--enforce-connectivity-per-part",
-        action="store_true",
-        help=(
-            "After the base strict/non-strict face pass, also enforce that each part ID "
-            "occupies a single connected face group using the distance-graph reassignment "
-            "post-processing."
-        ),
-    )
-    parser.add_argument(
-        "--export-urdf",
-        action="store_true",
-        help="Also export a URDF asset under the output directory for mesh inputs.",
-    )
-    parser.add_argument(
-        "--eval",
-        action="store_true",
-        help=(
-            "For meta-root inputs, export particulate-compatible eval files, compute per-object "
-            "evaluation metrics under output_dir/<asset_name>/eval, and refresh root-level "
-            "overall/per-category summaries. Mesh inputs still export eval files only."
-        ),
-    )
-    parser.add_argument(
-        "--no-point-prompt",
-        action="store_true",
-        help=(
-            "For links whose text/name signature is unique within the sample, remove the "
-            "point prompt and rely on text conditioning only during inference."
-        ),
-    )
-    parser.add_argument(
-        "--auto-kinematics",
-        type=str,
-        default=None,
-        help=(
-            "Optional multimodal model ID used to infer mesh kinematics and point prompts "
-            "automatically, for example 'gpt-5.4' or 'gemini-3.1-pro-preview'."
-        ),
-    )
-    parser.add_argument(
-        "--reasoning-effort",
-        type=str,
-        choices=("low", "medium", "high"),
-        default="medium",
-        help=(
-            "Reasoning effort / thinking level for auto-kinematics models "
-            "(OpenAI and Gemini)."
-        ),
-    )
-    parser.add_argument(
-        "--azimuths",
-        type=float,
-        nargs="+",
-        default=list(DEFAULT_AUTO_KINEMATICS_AZIMUTHS),
-        help=(
-            "Azimuth angles in degrees used for auto-kinematics mesh rendering. "
-            "Only used when --auto-kinematics is set."
-        ),
-    )
-    parser.add_argument(
-        "--blender-bin",
-        type=Path,
-        default=None,
-        help=(
-            "Optional Blender binary used to render auto-kinematics mesh views. "
-            "Defaults to auto-detecting a Blender install under the home directory."
-        ),
-    )
-    parser.add_argument(
-        "--up_dir",
-        "--up-dir",
-        dest="up_dir",
-        type=canonicalize_up_dir,
-        default="+Z",
-        help=(
-            "Up direction of a direct mesh input. Supported values are +X, -X, +Y, -Y, +Z, "
-            "and -Z (X/Y/Z shorthand is also accepted). Mesh inputs are rotated into +Z-up "
-            "before normalization and inference."
-        ),
-    )
-    parser.add_argument(
-        "--skip-existing",
-        action="store_true",
-        help=(
-            "Skip inputs whose deterministic outputs already exist. Without --eval, this uses "
-            "output_dir/<input_stem>/metadata.json as the completion marker. For meta-root "
-            "inputs with --eval, this reuses the per-object eval JSON when it follows the "
-            "current schema."
-        ),
-    )
-    args = parser.parse_args()
-    if args.joint_decoding_confidence_temperature <= 0.0:
-        parser.error("--joint-decoding-confidence-temperature must be positive")
-    return args
 
 
 def tensor_to_numpy(tensor: torch.Tensor, *, dtype: np.dtype[Any] | type) -> np.ndarray:
@@ -1426,20 +1143,6 @@ def build_joint_refit_metadata(
     }
 
 
-def _query_visualization_part_confidences_from_motion_output(
-    motion_output: dict[str, Any],
-) -> dict[int, float] | None:
-    joint_decoding_link_ids = motion_output.get("joint_decoding_link_ids")
-    joint_decoding_confidences = motion_output.get("joint_decoding_confidences")
-    if joint_decoding_link_ids is None or joint_decoding_confidences is None:
-        return None
-
-    return compute_link_geometric_mean_confidences(
-        query_link_ids=tensor_to_numpy(joint_decoding_link_ids[0], dtype=np.int64),
-        query_confidences=tensor_to_numpy(joint_decoding_confidences[0], dtype=np.float32),
-    )
-
-
 def decode_face_part_ids(
     mesh: Any,
     *,
@@ -1469,7 +1172,6 @@ def decode_face_part_ids(
 
 
 def compute_motion_prediction_artifacts(
-    args: argparse.Namespace,
     *,
     model: Particulate2ArticulationModel,
     batch: dict[str, Any],
@@ -1477,6 +1179,9 @@ def compute_motion_prediction_artifacts(
     face_part_ids: np.ndarray,
     joint_refit_num_query_points: int,
     num_links: int,
+    query_batch_size: int,
+    no_point_prompt: bool,
+    joint_decoding_confidence_temperature: float,
     center: np.ndarray | tuple[float, float, float],
     scale: float,
 ) -> dict[str, Any]:
@@ -1487,8 +1192,8 @@ def compute_motion_prediction_artifacts(
         mesh=normalized_mesh,
         face_part_ids=face_part_ids,
         num_query_points=int(joint_refit_num_query_points),
-        query_batch_size=int(args.query_batch_size),
-        no_point_prompt_for_unique_text=bool(args.no_point_prompt),
+        query_batch_size=int(query_batch_size),
+        no_point_prompt_for_unique_text=bool(no_point_prompt),
     )
     if model.joint_decode_type in {
         "overparametrized",
@@ -1503,7 +1208,7 @@ def compute_motion_prediction_artifacts(
                 .unsqueeze(0)
                 .to(batch["query_points"].device)
             ),
-            confidence_temperature=args.joint_decoding_confidence_temperature,
+            confidence_temperature=joint_decoding_confidence_temperature,
         )
     motion_arrays_normalized = motion_arrays_from_model_output(
         motion_output,
@@ -1629,18 +1334,11 @@ def _save_query_predictions(
     np.savez(output_path, **payload)
 
 
-def _missing_link_ids(num_links: int, unique_part_ids: np.ndarray) -> list[int]:
-    """Returns input link IDs absent from the final face segmentation."""
-    return sorted(
-        set(range(int(num_links))) - set(np.asarray(unique_part_ids, dtype=np.int32).tolist())
-    )
-
-
 def resolve_visualized_batch_link_point_prompts(
     *,
-    args: argparse.Namespace,
     batch: dict[str, Any],
     links: list[dict[str, Any]],
+    no_point_prompt: bool,
     center: np.ndarray,
     scale: float,
 ) -> tuple[np.ndarray, np.ndarray]:
@@ -1663,13 +1361,12 @@ def resolve_visualized_batch_link_point_prompts(
     return select_visualized_link_point_prompts(
         link_point_prompts=link_point_prompts_world,
         links=links,
-        hide_unique_text_prompts=bool(args.no_point_prompt),
+        hide_unique_text_prompts=bool(no_point_prompt),
         link_point_prompt_dropout_eligible=dropout_eligible_np,
     )
 
 
 def build_base_metadata(
-    args: argparse.Namespace,
     *,
     mode: str,
     input_path: Path,
@@ -1679,6 +1376,11 @@ def build_base_metadata(
     num_shape_points: int,
     segmentation_num_query_points: int,
     joint_refit_num_query_points: int,
+    num_query_points_per_face_for_seg: int | None,
+    query_batch_size: int,
+    no_point_prompt: bool,
+    enforce_connectivity_per_part: bool,
+    joint_decoding_confidence_temperature: float,
     sharp_point_ratio: float,
 ) -> dict[str, Any]:
     """Builds the metadata fields common to mesh and meta-root inference."""
@@ -1694,14 +1396,14 @@ def build_base_metadata(
         "joint_refit_num_query_points": int(joint_refit_num_query_points),
         "num_query_points_per_face_for_seg": (
             None
-            if args.num_query_points_per_face_for_seg is None
-            else int(args.num_query_points_per_face_for_seg)
+            if num_query_points_per_face_for_seg is None
+            else int(num_query_points_per_face_for_seg)
         ),
-        "query_batch_size": int(args.query_batch_size),
-        "no_point_prompt": bool(args.no_point_prompt),
-        "enforce_connectivity_per_part": bool(args.enforce_connectivity_per_part),
+        "query_batch_size": int(query_batch_size),
+        "no_point_prompt": bool(no_point_prompt),
+        "enforce_connectivity_per_part": bool(enforce_connectivity_per_part),
         "joint_decoding_confidence_temperature": float(
-            args.joint_decoding_confidence_temperature
+            joint_decoding_confidence_temperature
         ),
         "sharp_point_ratio": float(sharp_point_ratio),
     }
@@ -1732,156 +1434,6 @@ def write_metadata_and_summary(
     )
 
 
-def _resolve_output_dir(args: argparse.Namespace, input_path: Path) -> Path:
-    output_root = args.output_dir.expanduser().resolve()
-    output_dir = output_root / input_path.stem
-    output_dir.mkdir(parents=True, exist_ok=True)
-    return output_dir
-
-
-def _resolve_joint_refit_num_query_points(
-    args: argparse.Namespace,
-    *,
-    default_num_query_points: int | None,
-) -> int:
-    return resolve_num_query_points(args.num_query_points, default_num_query_points)
-
-
-def _resolve_segmentation_num_query_points(
-    args: argparse.Namespace,
-    *,
-    mesh: Any,
-    default_num_query_points: int | None,
-) -> int:
-    if args.num_query_points_per_face_for_seg is None:
-        return _resolve_joint_refit_num_query_points(
-            args,
-            default_num_query_points=default_num_query_points,
-        )
-
-    num_faces = int(np.asarray(mesh.faces).shape[0])
-    if num_faces <= 0:
-        raise ValueError("Cannot use --num-query-points-per-face-for-seg for a mesh with no faces")
-    return int(args.num_query_points_per_face_for_seg) * num_faces
-
-
-def _resolve_pending_input_paths(
-    args: argparse.Namespace,
-    input_paths: list[Path],
-) -> list[Path]:
-    """Filters already-completed inputs when `--skip-existing` is enabled.
-
-    Args:
-        args: Parsed CLI arguments.
-        input_paths: Resolved inputs to process.
-
-    Returns:
-        Input paths that still need inference.
-
-    Non-eval inference writes deterministic output directories, so a completed
-    run is identified by the final metadata file written at the end of the
-    per-input pipeline.
-    """
-    if not args.skip_existing:
-        return input_paths
-
-    output_root = args.output_dir.expanduser().resolve()
-    pending_input_paths: list[Path] = []
-    for input_path in input_paths:
-        input_mode = resolve_input_mode(input_path)
-        if args.eval and input_mode == "meta_root":
-            cached_result = load_cached_sample_result(output_root, input_path)
-            if cached_result is not None:
-                result_path = existing_result_path_for_input(output_root, input_path)
-                print(f"Skipping {input_path}: found existing output {result_path}")
-                continue
-            stale_result_path = existing_result_path_for_input(output_root, input_path)
-            if stale_result_path.exists():
-                print(f"Recomputing {input_path}: existing eval JSON is outdated {stale_result_path}")
-            pending_input_paths.append(input_path)
-            continue
-
-        if not args.eval:
-            marker_path = output_root / input_path.stem / "metadata.json"
-            if marker_path.exists():
-                print(f"Skipping {input_path}: found existing output {marker_path}")
-                continue
-            pending_input_paths.append(input_path)
-            continue
-
-        marker_path = output_root / input_path.stem / "eval" / "pred.npz"
-        if marker_path.exists():
-            print(f"Skipping {input_path}: found existing output {marker_path}")
-            continue
-        pending_input_paths.append(input_path)
-    return pending_input_paths
-
-
-def _resolve_input_paths(input_path: Path) -> list[Path]:
-    """Expand a directory of meta-roots into per-asset inputs for one-shot inference."""
-    resolved_input_path = input_path.expanduser().resolve()
-    if not resolved_input_path.is_dir():
-        return [resolved_input_path]
-    if is_supported_meta_root(resolved_input_path):
-        return [resolved_input_path]
-    if is_saved_auto_kinematics_root(resolved_input_path):
-        return [resolved_input_path]
-
-    child_inputs = [
-        child_path.resolve()
-        for child_path in sorted(resolved_input_path.iterdir())
-        if is_supported_meta_root(child_path) or is_saved_auto_kinematics_root(child_path)
-    ]
-    if child_inputs:
-        return child_inputs
-    return [resolved_input_path]
-
-
-def _prepare_saved_auto_kinematics_mesh_batch(
-    *,
-    auto_root: SavedAutoKinematicsRoot,
-    mesh: Any,
-    num_shape_points: int,
-    num_query_points: int,
-    num_query_points_per_face_for_seg: int | None,
-    sharp_point_ratio: float,
-    device: torch.device,
-) -> PreparedMeshBatch:
-    batch, query_face_indices = prepare_inference_batch_from_mesh_with_prompts(
-        mesh,
-        num_shape_points=num_shape_points,
-        num_query_points=int(num_query_points),
-        num_query_points_per_face_for_seg=num_query_points_per_face_for_seg,
-        sharp_point_ratio=sharp_point_ratio,
-        link_names=auto_root.link_names,
-        joint_specs=auto_root.joint_specs,
-        device=device,
-        link_point_prompts=torch.from_numpy(auto_root.link_point_prompts).float(),
-        link_point_prompt_normals=torch.from_numpy(auto_root.link_point_prompt_normals).float(),
-        require_unique_link_names=False,
-    )
-    return PreparedMeshBatch(
-        batch=batch,
-        query_face_indices=np.asarray(query_face_indices, dtype=np.int64),
-        link_names=list(auto_root.link_names),
-        joint_specs=list(auto_root.joint_specs),
-        auto_kinematics_metadata={
-            "source": "saved_auto_kinematics_root",
-            "auto_kinematics_root": str(auto_root.root_path),
-            "mesh_path": str(auto_root.mesh_path),
-            "mesh_up_dir": str(auto_root.mesh_up_dir),
-            "geometry_metadata_path": str(auto_root.geometry_metadata_path),
-            "parsed_response_path": str(auto_root.parsed_response_path),
-            "lifted_prompts_path": str(auto_root.lifted_prompts_path),
-        },
-        link_point_prompt_face_ids=(
-            None
-            if auto_root.link_point_prompt_face_ids is None
-            else np.asarray(auto_root.link_point_prompt_face_ids, dtype=np.int64)
-        ),
-    )
-
-
 def prepare_mesh_geometry(
     *,
     input_path: Path,
@@ -1908,135 +1460,6 @@ def prepare_mesh_geometry(
         render_mesh=render_mesh,
         render_to_model_rotation=(blender_import_rotation @ render_export_rotation).T,
     )
-
-
-def _prepare_mesh_batch(
-    args: argparse.Namespace,
-    *,
-    mesh_geometry: PreparedMeshGeometry,
-    output_dir: Path,
-    num_shape_points: int,
-    num_query_points: int,
-    num_query_points_per_face_for_seg: int | None,
-    sharp_point_ratio: float,
-    device: torch.device,
-) -> PreparedMeshBatch:
-    """Builds the direct-mesh batch, either from prompts or auto-kinematics."""
-    if args.auto_kinematics:
-        auto_kinematics = prepare_auto_kinematics_mesh_batch(
-            mesh=mesh_geometry.normalized_mesh,
-            original_mesh=mesh_geometry.original_mesh,
-            render_mesh=mesh_geometry.render_mesh,
-            output_dir=output_dir,
-            auto_kinematics_model_id=str(args.auto_kinematics),
-            azimuths_deg=args.azimuths,
-            system_prompt_path=Path(__file__).with_name("kinematic-inference-system-prompt.md"),
-            num_shape_points=num_shape_points,
-            num_query_points=int(num_query_points),
-            num_query_points_per_face_for_seg=num_query_points_per_face_for_seg,
-            sharp_point_ratio=sharp_point_ratio,
-            device=device,
-            center=mesh_geometry.center,
-            scale=mesh_geometry.scale,
-            render_mesh_space="canonical_z_up_pre_blender_import",
-            render_to_batch_rotation=mesh_geometry.render_to_model_rotation,
-            reasoning_effort=str(args.reasoning_effort),
-            blender_bin=args.blender_bin,
-        )
-        return PreparedMeshBatch(
-            batch=auto_kinematics["batch"],
-            query_face_indices=np.asarray(auto_kinematics["query_face_indices"], dtype=np.int64),
-            link_names=list(auto_kinematics["link_names"]),
-            joint_specs=list(auto_kinematics["joint_specs"]),
-            auto_kinematics_metadata=dict(auto_kinematics["metadata"]),
-            link_point_prompt_face_ids=np.asarray(
-                auto_kinematics["link_point_prompt_face_ids"],
-                dtype=np.int64,
-            ),
-        )
-
-    link_names, joint_specs = prompt_for_link_names_and_joints()
-    batch, query_face_indices = prepare_inference_batch_from_mesh(
-        mesh_geometry.normalized_mesh,
-        num_shape_points=num_shape_points,
-        num_query_points=int(num_query_points),
-        num_query_points_per_face_for_seg=num_query_points_per_face_for_seg,
-        sharp_point_ratio=sharp_point_ratio,
-        link_names=link_names,
-        joint_specs=joint_specs,
-        device=device,
-    )
-    return PreparedMeshBatch(
-        batch=batch,
-        query_face_indices=np.asarray(query_face_indices, dtype=np.int64),
-        link_names=link_names,
-        joint_specs=joint_specs,
-        auto_kinematics_metadata={},
-        link_point_prompt_face_ids=None,
-    )
-
-
-def _run_mesh_like_prediction(
-    args: argparse.Namespace,
-    *,
-    model: Particulate2ArticulationModel,
-    batch: dict[str, Any],
-    original_mesh: Any,
-    normalized_mesh: Any,
-    query_face_indices: np.ndarray,
-    joint_refit_num_query_points: int,
-    num_links: int,
-    center: np.ndarray | tuple[float, float, float],
-    scale: float,
-) -> dict[str, Any]:
-    """Runs the shared mesh/meta-root prediction pipeline after batch preparation."""
-    output = run_batched_model_inference(
-        model,
-        query_batch_size=int(args.query_batch_size),
-        no_point_prompt_for_unique_text=bool(args.no_point_prompt),
-        decode_joint_parameters=False,
-        **batch,
-    )
-    point_part_probabilities = (
-        F.softmax(output["segmentation_logits"], dim=-1)[0]
-        .detach()
-        .cpu()
-        .numpy()
-        .astype(np.float32)
-    )
-    point_part_ids = (
-        output["segmentation_logits"].argmax(dim=-1)[0].detach().cpu().numpy().astype(np.int32)
-    )
-    face_part_ids, face_part_ids_unrefined = decode_face_part_ids(
-        normalized_mesh,
-        point_part_ids=point_part_ids,
-        point_part_probabilities=point_part_probabilities,
-        query_face_indices=query_face_indices,
-        input_part_ids=np.arange(int(num_links), dtype=np.int32),
-        strict=bool(args.strict_face_postprocess),
-        enforce_connectivity_per_part=bool(
-            getattr(args, "enforce_connectivity_per_part", False)
-        ),
-    )
-    motion_artifacts = compute_motion_prediction_artifacts(
-        args,
-        model=model,
-        batch=batch,
-        normalized_mesh=normalized_mesh,
-        face_part_ids=face_part_ids,
-        joint_refit_num_query_points=int(joint_refit_num_query_points),
-        num_links=int(num_links),
-        center=center,
-        scale=scale,
-    )
-    return {
-        "query_points": tensor_to_numpy(batch["query_points"][0], dtype=np.float32),
-        "query_normals": tensor_to_numpy(batch["query_point_normals"][0], dtype=np.float32),
-        "point_part_ids": point_part_ids,
-        "face_part_ids": face_part_ids,
-        "face_part_ids_unrefined": face_part_ids_unrefined,
-        **motion_artifacts,
-    }
 
 
 def write_mesh_like_prediction_files(
@@ -2114,7 +1537,6 @@ def write_kinematic_and_overparam_visualization(
 
 
 def save_articulated_mesh_outputs(
-    args: argparse.Namespace,
     *,
     output_dir: Path,
     original_mesh: Any,
@@ -2126,6 +1548,8 @@ def save_articulated_mesh_outputs(
     revolute_range: np.ndarray,
     prismatic_axis: np.ndarray,
     prismatic_range: np.ndarray,
+    animation_frames: int,
+    export_urdf_enabled: bool,
     urdf_name: str,
     link_names: list[str],
     urdf_is_part_revolute: np.ndarray | None = None,
@@ -2143,10 +1567,10 @@ def save_articulated_mesh_outputs(
         revolute_range=revolute_range,
         prismatic_axis=prismatic_axis,
         prismatic_range=prismatic_range,
-        animation_frames=int(args.animation_frames),
+        animation_frames=int(animation_frames),
     )
 
-    if args.export_urdf:
+    if export_urdf_enabled:
         export_urdf(
             mesh_parts_original,
             unique_part_ids,
@@ -2170,653 +1594,3 @@ def save_articulated_mesh_outputs(
             link_names=link_names,
         )
     return unique_part_ids
-
-
-def run_mesh_inference(
-    args: argparse.Namespace,
-    *,
-    model: Particulate2ArticulationModel,
-    checkpoint_path: Path,
-    run_dir: Path,
-    device: torch.device,
-    num_shape_points: int,
-    default_num_query_points: int | None,
-    sharp_point_ratio: float,
-) -> None:
-    input_path = args.input_path.expanduser().resolve()
-    input_mode = resolve_input_mode(input_path)
-    output_dir = _resolve_output_dir(args, input_path)
-    saved_auto_root: SavedAutoKinematicsRoot | None = None
-    mesh_input_path = input_path
-    mesh_input_up_dir = args.up_dir
-    mode = "mesh"
-    if input_mode == "saved_auto_kinematics_root":
-        saved_auto_root = load_saved_auto_kinematics_root(input_path)
-        mesh_input_path = saved_auto_root.mesh_path
-        mesh_input_up_dir = saved_auto_root.mesh_up_dir
-        mode = "saved_auto_kinematics_root"
-    mesh_geometry = prepare_mesh_geometry(
-        input_path=mesh_input_path,
-        up_dir=mesh_input_up_dir,
-    )
-    joint_refit_num_query_points = _resolve_joint_refit_num_query_points(
-        args,
-        default_num_query_points=default_num_query_points,
-    )
-    segmentation_num_query_points = _resolve_segmentation_num_query_points(
-        args,
-        mesh=mesh_geometry.normalized_mesh,
-        default_num_query_points=default_num_query_points,
-    )
-    if saved_auto_root is not None:
-        mesh_batch = _prepare_saved_auto_kinematics_mesh_batch(
-            auto_root=saved_auto_root,
-            mesh=mesh_geometry.normalized_mesh,
-            num_shape_points=num_shape_points,
-            num_query_points=int(segmentation_num_query_points),
-            num_query_points_per_face_for_seg=args.num_query_points_per_face_for_seg,
-            sharp_point_ratio=sharp_point_ratio,
-            device=device,
-        )
-    else:
-        mesh_batch = _prepare_mesh_batch(
-            args,
-            mesh_geometry=mesh_geometry,
-            output_dir=output_dir,
-            num_shape_points=num_shape_points,
-            num_query_points=int(segmentation_num_query_points),
-            num_query_points_per_face_for_seg=args.num_query_points_per_face_for_seg,
-            sharp_point_ratio=sharp_point_ratio,
-            device=device,
-        )
-    prediction = _run_mesh_like_prediction(
-        args,
-        model=model,
-        batch=mesh_batch.batch,
-        original_mesh=mesh_geometry.original_mesh,
-        normalized_mesh=mesh_geometry.normalized_mesh,
-        query_face_indices=mesh_batch.query_face_indices,
-        joint_refit_num_query_points=int(joint_refit_num_query_points),
-        num_links=len(mesh_batch.link_names),
-        center=mesh_geometry.center,
-        scale=mesh_geometry.scale,
-    )
-    motion_output = prediction["motion_output"]
-    joint_refit_sampling = prediction["joint_refit_sampling"]
-    motion_arrays_normalized = prediction["motion_arrays_normalized"]
-    motion_arrays_world = prediction["motion_arrays_world"]
-    prismatic_axis_world = prediction["prismatic_axis_world"]
-    prismatic_axis_normalized = prediction["prismatic_axis_normalized"]
-    point_part_ids = prediction["point_part_ids"]
-    face_part_ids = prediction["face_part_ids"]
-    face_part_ids_unrefined = prediction["face_part_ids_unrefined"]
-    query_points = prediction["query_points"]
-
-    write_mesh_like_prediction_files(
-        output_dir,
-        face_part_ids=face_part_ids,
-        query_points=query_points,
-        query_face_indices=mesh_batch.query_face_indices,
-        point_part_ids=point_part_ids,
-        center=mesh_geometry.center,
-        scale=mesh_geometry.scale,
-        joint_refit_sampling=joint_refit_sampling,
-    )
-
-    motion_hierarchy = [
-        (parent_link_id, child_link_id)
-        for parent_link_id, child_link_id, _ in mesh_batch.joint_specs
-    ]
-    predicted_kinematic = build_predicted_kinematic_records(
-        mesh_batch.link_names,
-        mesh_batch.joint_specs,
-        revolute_plucker=motion_arrays_world["revolute_plucker"],
-        prismatic_plucker=motion_arrays_world["prismatic_plucker"],
-        prismatic_axis=prismatic_axis_world,
-        revolute_range=motion_arrays_world["revolute_range"],
-        prismatic_range=motion_arrays_world["prismatic_range"],
-        revolute_parameter_valid=motion_arrays_normalized["revolute_parameter_valid"],
-        prismatic_parameter_valid=motion_arrays_normalized["prismatic_parameter_valid"],
-    )
-    visualization_link_point_prompts_world, visualization_link_point_prompt_ids = (
-        resolve_visualized_batch_link_point_prompts(
-            args=args,
-            batch=mesh_batch.batch,
-            links=predicted_kinematic["links"],
-            center=mesh_geometry.center,
-            scale=mesh_geometry.scale,
-        )
-    )
-    visualization_path = save_predicted_point_query_visualization(
-        output_dir,
-        query_points=denormalize_points(
-            query_points,
-            center=mesh_geometry.center,
-            scale=mesh_geometry.scale,
-        ),
-        query_normals=prediction["query_normals"],
-        predicted_part_ids=point_part_ids,
-        link_point_prompts=visualization_link_point_prompts_world,
-        link_point_prompt_ids=visualization_link_point_prompt_ids,
-        links=predicted_kinematic["links"],
-        predicted_joints=predicted_kinematic["joints"],
-        predicted_link_confidences=_query_visualization_part_confidences_from_motion_output(
-            motion_output
-        ),
-    )
-    overparam_visualization_path = write_kinematic_and_overparam_visualization(
-        output_dir,
-        kinematic_records=predicted_kinematic,
-        visualization_records=None,
-        motion_output=motion_output,
-        query_points=query_points,
-        point_part_ids=point_part_ids,
-        joint_refit_sampling=joint_refit_sampling,
-        center=mesh_geometry.center,
-        scale=mesh_geometry.scale,
-    )
-    unique_part_ids = save_articulated_mesh_outputs(
-        args,
-        output_dir=output_dir,
-        original_mesh=mesh_geometry.original_mesh,
-        face_part_ids=face_part_ids,
-        motion_hierarchy=motion_hierarchy,
-        is_part_revolute=motion_arrays_normalized["is_part_revolute"],
-        is_part_prismatic=motion_arrays_normalized["is_part_prismatic"],
-        revolute_plucker=motion_arrays_world["revolute_plucker"],
-        revolute_range=motion_arrays_world["revolute_range"],
-        prismatic_axis=prismatic_axis_world,
-        prismatic_range=motion_arrays_world["prismatic_range"],
-        urdf_name=input_path.stem,
-        link_names=mesh_batch.link_names,
-    )
-
-    eval_output_dir = None
-    if args.eval:
-        eval_output_dir = save_evaluation_prediction(
-            output_dir=output_dir,
-            mesh=mesh_geometry.normalized_mesh,
-            face_part_ids=face_part_ids,
-            face_part_ids_unrefined=face_part_ids_unrefined,
-            motion_hierarchy=motion_hierarchy,
-            is_part_revolute=motion_arrays_normalized["is_part_revolute"],
-            is_part_prismatic=motion_arrays_normalized["is_part_prismatic"],
-            revolute_plucker=motion_arrays_normalized["revolute_plucker"],
-            revolute_range=motion_arrays_normalized["revolute_range"],
-            prismatic_axis=prismatic_axis_normalized,
-            prismatic_range=motion_arrays_normalized["prismatic_range"],
-        )
-
-    metadata = build_base_metadata(
-        args,
-        mode=mode,
-        input_path=input_path,
-        run_dir=run_dir,
-        checkpoint_path=checkpoint_path,
-        device=device,
-        num_shape_points=num_shape_points,
-        segmentation_num_query_points=segmentation_num_query_points,
-        joint_refit_num_query_points=joint_refit_num_query_points,
-        sharp_point_ratio=sharp_point_ratio,
-    ) | {
-        "link_names": mesh_batch.link_names,
-        "num_input_parts": int(len(mesh_batch.link_names)),
-        "joint_specs": [
-            {
-                "parent_link_id": int(parent_link_id),
-                "child_link_id": int(child_link_id),
-                "joint_type": joint_type,
-            }
-            for parent_link_id, child_link_id, joint_type in mesh_batch.joint_specs
-        ],
-        "unique_part_ids_in_segmentation": unique_part_ids.astype(int).tolist(),
-        "missing_link_ids_in_segmentation": _missing_link_ids(
-            len(mesh_batch.link_names),
-            unique_part_ids,
-        ),
-        "visualization_path": str(visualization_path),
-        "normalization": {
-            "center": mesh_geometry.center.tolist(),
-            "scale": mesh_geometry.scale,
-        },
-        "mesh_orientation": {
-            "input_up_dir": str(mesh_input_up_dir),
-            "canonical_up_dir": "+Z",
-            "reoriented_to_canonical_z_up": bool(mesh_input_up_dir != "+Z"),
-            "rotation_matrix": mesh_geometry.up_dir_rotation.tolist(),
-        },
-    } | build_joint_refit_metadata(
-        joint_refit_sampling,
-        num_links=len(mesh_batch.link_names),
-    )
-    if mesh_batch.auto_kinematics_metadata:
-        metadata["auto_kinematics"] = mesh_batch.auto_kinematics_metadata
-    write_metadata_and_summary(
-        output_dir=output_dir,
-        metadata=metadata,
-        checkpoint_path=checkpoint_path,
-        unique_part_ids=unique_part_ids,
-        visualization_path=visualization_path,
-        overparam_visualization_path=overparam_visualization_path,
-        optional_paths={
-            "overparam_visualization_path": overparam_visualization_path,
-            "eval_output_dir": eval_output_dir,
-        },
-    )
-
-
-def run_meta_root_inference(
-    args: argparse.Namespace,
-    *,
-    model: Particulate2ArticulationModel,
-    checkpoint_path: Path,
-    run_dir: Path,
-    device: torch.device,
-    num_shape_points: int,
-    default_num_query_points: int | None,
-    sharp_point_ratio: float,
-) -> None:
-    meta_root = args.input_path.expanduser().resolve()
-    original_obj_path, face_gt_link_ids, links, joints, meta_root_format = load_meta_root_annotation(
-        meta_root,
-    )
-    original_mesh = load_trimesh(original_obj_path)
-    normalized_mesh, center, scale = normalize_mesh(original_mesh)
-    joint_refit_num_query_points = _resolve_joint_refit_num_query_points(
-        args,
-        default_num_query_points=default_num_query_points,
-    )
-    segmentation_num_query_points = _resolve_segmentation_num_query_points(
-        args,
-        mesh=normalized_mesh,
-        default_num_query_points=default_num_query_points,
-    )
-    batch, meta_info = prepare_inference_batch_from_meta_root(
-        normalized_mesh,
-        face_link_ids=face_gt_link_ids,
-        links=links,
-        joints=joints,
-        num_shape_points=num_shape_points,
-        num_query_points=int(segmentation_num_query_points),
-        num_query_points_per_face_for_seg=args.num_query_points_per_face_for_seg,
-        sharp_point_ratio=sharp_point_ratio,
-        device=device,
-    )
-    prediction = _run_mesh_like_prediction(
-        args,
-        model=model,
-        batch=batch,
-        original_mesh=original_mesh,
-        normalized_mesh=normalized_mesh,
-        query_face_indices=meta_info["query_face_indices"],
-        joint_refit_num_query_points=int(joint_refit_num_query_points),
-        num_links=len(meta_info["link_names"]),
-        center=center,
-        scale=scale,
-    )
-    motion_output = prediction["motion_output"]
-    joint_refit_sampling = prediction["joint_refit_sampling"]
-    motion_arrays_normalized = prediction["motion_arrays_normalized"]
-    motion_arrays_world = prediction["motion_arrays_world"]
-    prismatic_axis_world = prediction["prismatic_axis_world"]
-    prismatic_axis_normalized = prediction["prismatic_axis_normalized"]
-    point_part_ids = prediction["point_part_ids"]
-    face_part_ids = prediction["face_part_ids"]
-    face_part_ids_unrefined = prediction["face_part_ids_unrefined"]
-    query_points = prediction["query_points"]
-    query_normals = prediction["query_normals"]
-    (
-        gt_revolute_range_forward_mask,
-        gt_prismatic_range_forward_mask,
-    ) = range_forward_masks_by_child_link(
-        meta_info["sorted_joints"],
-        num_links=len(meta_info["link_names"]),
-    )
-    forwarded_revolute_range_world = zero_unforwarded_link_ranges(
-        motion_arrays_world["revolute_range"],
-        forward_mask=gt_revolute_range_forward_mask,
-    )
-    forwarded_prismatic_range_world = zero_unforwarded_link_ranges(
-        motion_arrays_world["prismatic_range"],
-        forward_mask=gt_prismatic_range_forward_mask,
-    )
-    output_dir = _resolve_output_dir(args, meta_root)
-    write_mesh_like_prediction_files(
-        output_dir,
-        face_part_ids=face_part_ids,
-        query_points=query_points,
-        query_normals=query_normals,
-        query_face_indices=meta_info["query_face_indices"],
-        point_part_ids=point_part_ids,
-        center=np.asarray(center, dtype=np.float32),
-        scale=scale,
-        joint_refit_sampling=joint_refit_sampling,
-        gt_part_ids=meta_info["query_gt_link_ids"],
-    )
-
-    predicted_kinematic = build_predicted_kinematic_records_from_links_and_joints(
-        meta_info["sorted_links"],
-        meta_info["sorted_joints"],
-        revolute_plucker=motion_arrays_world["revolute_plucker"],
-        prismatic_plucker=motion_arrays_world["prismatic_plucker"],
-        prismatic_axis=prismatic_axis_world,
-        revolute_range=motion_arrays_world["revolute_range"],
-        prismatic_range=motion_arrays_world["prismatic_range"],
-        revolute_parameter_valid=motion_arrays_normalized["revolute_parameter_valid"],
-        prismatic_parameter_valid=motion_arrays_normalized["prismatic_parameter_valid"],
-    )
-    predicted_kinematic["joints"] = suppress_unforwarded_joint_ranges(
-        predicted_kinematic["joints"],
-        revolute_range_forward_mask=gt_revolute_range_forward_mask,
-        prismatic_range_forward_mask=gt_prismatic_range_forward_mask,
-    )
-    predicted_joint_records = build_predicted_joint_records_from_links_and_joints(
-        meta_info["sorted_links"],
-        meta_info["sorted_joints"],
-        revolute_plucker=motion_arrays_world["revolute_plucker"],
-        prismatic_plucker=motion_arrays_world["prismatic_plucker"],
-        prismatic_axis=prismatic_axis_world,
-        revolute_range=motion_arrays_world["revolute_range"],
-        prismatic_range=motion_arrays_world["prismatic_range"],
-        revolute_parameter_valid=motion_arrays_normalized["revolute_parameter_valid"],
-        prismatic_parameter_valid=motion_arrays_normalized["prismatic_parameter_valid"],
-    )
-    predicted_joint_records["joints"] = suppress_unforwarded_joint_ranges(
-        predicted_joint_records["joints"],
-        revolute_range_forward_mask=gt_revolute_range_forward_mask,
-        prismatic_range_forward_mask=gt_prismatic_range_forward_mask,
-    )
-    visualization_link_point_prompts_world, visualization_link_point_prompt_ids = (
-        resolve_visualized_batch_link_point_prompts(
-            args=args,
-            batch=batch,
-            links=predicted_joint_records["links"],
-            center=np.asarray(center, dtype=np.float32),
-            scale=scale,
-        )
-    )
-    overparam_visualization_path = write_kinematic_and_overparam_visualization(
-        output_dir,
-        kinematic_records=predicted_kinematic,
-        visualization_records=predicted_joint_records,
-        motion_output=motion_output,
-        query_points=query_points,
-        point_part_ids=point_part_ids,
-        joint_refit_sampling=joint_refit_sampling,
-        center=np.asarray(center, dtype=np.float32),
-        scale=scale,
-    )
-
-    motion_hierarchy = [
-        (int(joint["parent_link_id"]), int(joint["child_link_id"]))
-        for joint in meta_info["sorted_joints"]
-    ]
-    unique_part_ids = save_articulated_mesh_outputs(
-        args,
-        output_dir=output_dir,
-        original_mesh=original_mesh,
-        face_part_ids=face_part_ids,
-        motion_hierarchy=motion_hierarchy,
-        is_part_revolute=motion_arrays_normalized["is_part_revolute"],
-        is_part_prismatic=motion_arrays_normalized["is_part_prismatic"],
-        revolute_plucker=motion_arrays_world["revolute_plucker"],
-        revolute_range=forwarded_revolute_range_world,
-        prismatic_axis=prismatic_axis_world,
-        prismatic_range=forwarded_prismatic_range_world,
-        urdf_name=meta_root.stem,
-        link_names=meta_info["link_names"],
-        urdf_is_part_revolute=motion_arrays_normalized["is_part_revolute"]
-        & gt_revolute_range_forward_mask,
-        urdf_is_part_prismatic=motion_arrays_normalized["is_part_prismatic"]
-        & gt_prismatic_range_forward_mask,
-    )
-
-    eval_output_dir = None
-    eval_result_path = None
-    if args.eval:
-        eval_output_dir, _ = export_and_evaluate_meta_root_prediction(
-            output_dir=output_dir,
-            meta_root=meta_root,
-            mesh=normalized_mesh,
-            face_part_ids=face_part_ids,
-            face_part_ids_unrefined=face_part_ids_unrefined,
-            motion_hierarchy=motion_hierarchy,
-            is_part_revolute=motion_arrays_normalized["is_part_revolute"],
-            is_part_prismatic=motion_arrays_normalized["is_part_prismatic"],
-            revolute_plucker=motion_arrays_normalized["revolute_plucker"],
-            revolute_range=motion_arrays_normalized["revolute_range"],
-            prismatic_axis=prismatic_axis_normalized,
-            prismatic_range=motion_arrays_normalized["prismatic_range"],
-            num_points=DEFAULT_EVAL_NUM_POINTS,
-        )
-        eval_result_path = per_object_result_path(eval_output_dir)
-
-    visualization_path = save_point_query_visualization(
-        output_dir,
-        query_points=denormalize_points(
-            query_points,
-            center=np.asarray(center, dtype=np.float32),
-            scale=scale,
-        ),
-        query_normals=query_normals,
-        predicted_part_ids=point_part_ids,
-        gt_part_ids=meta_info["query_gt_link_ids"].astype(np.int32, copy=False),
-        link_point_prompts=visualization_link_point_prompts_world,
-        link_point_prompt_ids=visualization_link_point_prompt_ids,
-        links=predicted_joint_records["links"],
-        predicted_link_confidences=_query_visualization_part_confidences_from_motion_output(
-            motion_output
-        ),
-        predicted_joints=predicted_joint_records["joints"],
-        gt_joints=meta_info["sorted_joints"],
-    )
-
-    metadata = build_base_metadata(
-        args,
-        mode="meta_root",
-        input_path=meta_root,
-        run_dir=run_dir,
-        checkpoint_path=checkpoint_path,
-        device=device,
-        num_shape_points=num_shape_points,
-        segmentation_num_query_points=segmentation_num_query_points,
-        joint_refit_num_query_points=joint_refit_num_query_points,
-        sharp_point_ratio=sharp_point_ratio,
-    ) | {
-        "original_obj_path": str(original_obj_path),
-        "meta_root_format": meta_root_format,
-        "link_names": meta_info["link_names"],
-        "num_input_parts": int(len(meta_info["link_names"])),
-        "joints": [
-            {
-                "joint_id": int(joint["joint_id"]),
-                "parent_link_id": int(joint["parent_link_id"]),
-                "child_link_id": int(joint["child_link_id"]),
-                "is_revolute": bool(joint.get("is_revolute", False)),
-                "is_prismatic": bool(joint.get("is_prismatic", False)),
-            }
-            for joint in meta_info["sorted_joints"]
-        ],
-        "unique_part_ids_in_segmentation": unique_part_ids.astype(int).tolist(),
-        "missing_link_ids_in_segmentation": _missing_link_ids(
-            len(meta_info["link_names"]),
-            unique_part_ids,
-        ),
-        "visualization_path": str(visualization_path),
-        "normalization": {
-            "center": np.asarray(center, dtype=np.float32).tolist(),
-            "scale": float(scale),
-        },
-    } | build_joint_refit_metadata(
-        joint_refit_sampling,
-        num_links=len(meta_info["link_names"]),
-    )
-    if meta_root_format == "kinematic_json":
-        metadata["face_seg_path"] = str(meta_root / "seg.npy")
-        metadata["kinematic_json_path"] = str(meta_root / "kinematic.json")
-    else:
-        metadata["legacy_meta_path"] = str(meta_root / "meta.npz")
-        metadata["legacy_link_axes_plucker_path"] = str(meta_root / "link_axes_plucker.npz")
-        metadata["legacy_link_range_path"] = str(meta_root / "link_range.npz")
-    write_metadata_and_summary(
-        output_dir=output_dir,
-        metadata=metadata,
-        checkpoint_path=checkpoint_path,
-        unique_part_ids=unique_part_ids,
-        visualization_path=visualization_path,
-        overparam_visualization_path=overparam_visualization_path,
-        optional_paths={
-            "overparam_visualization_path": overparam_visualization_path,
-            "eval_output_dir": eval_output_dir,
-            "eval_result_path": eval_result_path,
-        },
-    )
-
-
-def _run_inference_for_single_input(
-    args: argparse.Namespace,
-    *,
-    model: Particulate2ArticulationModel,
-    checkpoint_path: Path,
-    run_dir: Path,
-    device: torch.device,
-    num_shape_points: int,
-    default_num_query_points: int | None,
-    sharp_point_ratio: float,
-) -> None:
-    input_mode = resolve_input_mode(args.input_path)
-    if input_mode == "meta_root":
-        run_meta_root_inference(
-            args,
-            model=model,
-            checkpoint_path=checkpoint_path,
-            run_dir=run_dir,
-            device=device,
-            num_shape_points=num_shape_points,
-            default_num_query_points=default_num_query_points,
-            sharp_point_ratio=sharp_point_ratio,
-        )
-        return
-
-    run_mesh_inference(
-        args,
-        model=model,
-        checkpoint_path=checkpoint_path,
-        run_dir=run_dir,
-        device=device,
-        num_shape_points=num_shape_points,
-        default_num_query_points=default_num_query_points,
-        sharp_point_ratio=sharp_point_ratio,
-    )
-
-
-def _cleanup_after_single_input(device: torch.device) -> None:
-    """Release per-object Python/CUDA allocations before the next asset."""
-    gc.collect()
-    if device.type == "cuda":
-        torch.cuda.empty_cache()
-
-
-def main() -> None:
-    args = parse_args()
-    if args.eval:
-        _require_evaluation_dependencies()
-    input_paths = _resolve_input_paths(args.input_path)
-    pending_input_paths = _resolve_pending_input_paths(args, input_paths)
-    output_root = args.output_dir.expanduser().resolve()
-    if not pending_input_paths:
-        print("Skipping inference: all requested inputs already have outputs.")
-        if args.eval:
-            sample_results = refresh_output_root_summaries(output_root)
-            if sample_results:
-                print(
-                    f"Refreshed evaluation summaries for {len(sample_results)} samples under "
-                    f"{output_root}"
-                )
-        return
-
-    if torch.cuda.is_available():
-        device = torch.device("cuda")
-    else:
-        raise RuntimeError("CUDA is not available.")
-    run_dir = args.run_dir.expanduser().resolve()
-    config = load_run_config(run_dir)
-    configure_runtime_environment(config)
-
-    checkpoint_path = resolve_checkpoint_path(run_dir, args.ckpt_idx)
-    num_shape_points, default_num_query_points, sharp_point_ratio = (
-        resolve_inference_sampling_config(config)
-    )
-
-    model = Particulate2ArticulationModel(**config["model"])
-    load_model_checkpoint_for_inference(model, checkpoint_path, device=device)
-    if args.no_point_prompt and not model.encoder.use_text_conditioning:
-        raise ValueError("--no-point-prompt requires a text-conditioned model.")
-    input_modes = {resolve_input_mode(input_path) for input_path in pending_input_paths}
-    if args.auto_kinematics and input_modes != {"mesh"}:
-        raise ValueError("--auto-kinematics is only supported for direct mesh inputs.")
-    if "saved_auto_kinematics_root" in input_modes and args.up_dir != "+Z":
-        raise ValueError(
-            "--up_dir is not used for saved auto-kinematics roots; "
-            "they load the stored visualization mesh in +Y-up space automatically."
-        )
-    if args.up_dir != "+Z" and input_modes - {"mesh"}:
-        raise ValueError("--up_dir is only supported for direct mesh inputs.")
-    if model.encoder.use_text_conditioning and input_modes & {
-        "mesh",
-        "meta_root",
-        "saved_auto_kinematics_root",
-    }:
-        model.encoder.compute_link_text_embeddings_on_the_fly = True
-
-    print(
-        f"Running inference for {len(pending_input_paths)} inputs from "
-        f"{args.input_path.expanduser().resolve()} "
-        f"using checkpoint {checkpoint_path}"
-    )
-    num_failures = 0
-    for input_idx, input_path in enumerate(pending_input_paths, start=1):
-        print(f"[{input_idx}/{len(pending_input_paths)}] {input_path}")
-        per_input_args = argparse.Namespace(**vars(args))
-        per_input_args.input_path = input_path
-        try:
-            _run_inference_for_single_input(
-                per_input_args,
-                model=model,
-                checkpoint_path=checkpoint_path,
-                run_dir=run_dir,
-                device=device,
-                num_shape_points=num_shape_points,
-                default_num_query_points=default_num_query_points,
-                sharp_point_ratio=sharp_point_ratio,
-            )
-        except Exception as exc:
-            num_failures += 1
-            exc_message = str(exc)
-            exc_detail = (
-                f"{type(exc).__name__}: {exc_message}"
-                if exc_message
-                else type(exc).__name__
-            )
-            print(f"Error processing {input_path}: {exc_detail}")
-            traceback.print_exception(type(exc), exc, exc.__traceback__)
-        finally:
-            del per_input_args
-            _cleanup_after_single_input(device)
-    print(
-        f"Completed inference for {len(pending_input_paths) - num_failures} / "
-        f"{len(pending_input_paths)} inputs."
-    )
-    if args.eval:
-        sample_results = refresh_output_root_summaries(output_root)
-        if sample_results:
-            print(
-                f"Wrote evaluation summaries for {len(sample_results)} samples under "
-                f"{output_root}"
-            )
-    if num_failures and not bool(args.eval):
-        raise RuntimeError(f"Inference failed for {num_failures} input(s).")
-
-
-if __name__ == "__main__":
-    main()

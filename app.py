@@ -107,6 +107,7 @@ AUTO_KINEMATICS_REASONING_EFFORT = "medium"
 AUTO_KINEMATICS_CACHE_VERSION = 2
 INFERENCE_NO_POINT_PROMPT = True
 INFERENCE_EXPORT_URDF_DURING_WRITE = False
+HIGH_FACE_COUNT_WARNING_THRESHOLD = 100_000
 
 DEFAULT_KINEMATIC_TREE = {
     "links": [
@@ -189,6 +190,21 @@ DEMO_CSS = """
 }
 .kinematic-json-sync {
   display: none !important;
+}
+.mesh-face-warning {
+  margin: 8px 0 12px !important;
+  padding: 10px 12px !important;
+  border: 1px solid var(--demo-hover-border) !important;
+  border-radius: 6px !important;
+  background: var(--demo-control-bg) !important;
+  color: var(--demo-text) !important;
+  box-shadow: 0 1px 3px var(--demo-control-shadow) !important;
+}
+.mesh-face-warning p {
+  margin: 0 !important;
+  color: var(--demo-text) !important;
+  font-size: 14px !important;
+  line-height: 1.35 !important;
 }
 .mesh-panel {
   display: flex;
@@ -3518,6 +3534,21 @@ def _spaces_gpu(fn):
     return spaces.GPU(duration=duration)(fn)
 
 
+def _mesh_face_warning_update(mesh: Any):
+    face_count = len(getattr(mesh, "faces", []))
+    if face_count <= HIGH_FACE_COUNT_WARNING_THRESHOLD:
+        return gr.update(value="", visible=False)
+    return gr.update(
+        value=(
+            f"**Large mesh warning:** this mesh has {face_count:,} faces. "
+            "Very dense meshes can exhaust the Space's CPU resources during "
+            "post-processing; for reliable runs, use a mesh with fewer than "
+            f"{HIGH_FACE_COUNT_WARNING_THRESHOLD:,} faces."
+        ),
+        visible=True,
+    )
+
+
 class InstructParticulateApp:
     def __init__(
         self,
@@ -3618,11 +3649,13 @@ class InstructParticulateApp:
         empty_orientation_previews = [None] * len(UP_DIR_CHOICES)
         default_tree_json = _tree_to_pretty_json(DEFAULT_KINEMATIC_TREE)
         default_point_prompt_json = '{"prompts":[]}'
+        hidden_mesh_face_warning = gr.update(value="", visible=False)
         mesh_path = _extract_gradio_path(mesh_value)
         if mesh_path is None:
             yield (
                 None,
                 None,
+                hidden_mesh_face_warning,
                 default_tree_json,
                 default_point_prompt_json,
                 "",
@@ -3640,6 +3673,7 @@ class InstructParticulateApp:
             yield (
                 None,
                 None,
+                hidden_mesh_face_warning,
                 default_tree_json,
                 default_point_prompt_json,
                 "",
@@ -3651,6 +3685,7 @@ class InstructParticulateApp:
             )
             return
 
+        mesh_face_warning = _mesh_face_warning_update(mesh)
         cached_upright_previews = _cached_upright_preview_items(mesh_hash)
         rendering_orientation_previews = (
             _upright_preview_paths(cached_upright_previews)
@@ -3660,6 +3695,7 @@ class InstructParticulateApp:
         yield (
             str(mesh_path),
             mesh_hash,
+            mesh_face_warning,
             default_tree_json,
             default_point_prompt_json,
             "",
@@ -3676,6 +3712,7 @@ class InstructParticulateApp:
             yield (
                 str(mesh_path),
                 mesh_hash,
+                mesh_face_warning,
                 default_tree_json,
                 default_point_prompt_json,
                 "",
@@ -3690,6 +3727,7 @@ class InstructParticulateApp:
         yield (
             str(mesh_path),
             mesh_hash,
+            mesh_face_warning,
             default_tree_json,
             default_point_prompt_json,
             prompt_mesh_data,
@@ -3703,6 +3741,7 @@ class InstructParticulateApp:
             yield (
                 str(mesh_path),
                 mesh_hash,
+                mesh_face_warning,
                 default_tree_json,
                 default_point_prompt_json,
                 prompt_mesh_data,
@@ -3725,6 +3764,7 @@ class InstructParticulateApp:
             yield (
                 str(mesh_path),
                 mesh_hash,
+                mesh_face_warning,
                 default_tree_json,
                 default_point_prompt_json,
                 prompt_mesh_data,
@@ -3739,6 +3779,7 @@ class InstructParticulateApp:
         yield (
             str(mesh_path),
             mesh_hash,
+            mesh_face_warning,
             default_tree_json,
             default_point_prompt_json,
             prompt_mesh_data,
@@ -4687,6 +4728,12 @@ def create_gradio_app(app: InstructParticulateApp) -> gr.Blocks:
             <p>Upload one object mesh and provide a kinematic tree. The demo predicts part segmentation and joint parameters, then exports animated GLB and URDF assets.</p>
             """
         )
+        mesh_face_warning = gr.Markdown(
+            value="",
+            visible=False,
+            elem_classes=["mesh-face-warning"],
+            container=False,
+        )
 
         loaded_mesh_path = gr.State(None)
         loaded_mesh_hash = gr.State(None)
@@ -4853,6 +4900,7 @@ def create_gradio_app(app: InstructParticulateApp) -> gr.Blocks:
                     outputs=[
                         loaded_mesh_path,
                         loaded_mesh_hash,
+                        mesh_face_warning,
                         kinematic_tree,
                         point_prompts,
                         point_prompt_mesh_data,
@@ -4874,6 +4922,7 @@ def create_gradio_app(app: InstructParticulateApp) -> gr.Blocks:
             outputs=[
                 loaded_mesh_path,
                 loaded_mesh_hash,
+                mesh_face_warning,
                 kinematic_tree,
                 point_prompts,
                 point_prompt_mesh_data,

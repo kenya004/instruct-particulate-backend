@@ -299,6 +299,20 @@ DEMO_CSS = """
   flex-direction: column;
   gap: 8px;
 }
+.kin-extraction-status,
+.kin-extraction-status > div,
+.kin-extraction-status .wrap {
+  flex: 0 0 auto !important;
+  min-height: 0 !important;
+}
+.kin-extraction-status textarea {
+  min-height: 32px !important;
+  height: 32px !important;
+}
+.kin-extraction-status label {
+  margin-bottom: 2px !important;
+  font-size: 12px !important;
+}
 .kin-panel .kinematic-editor-host {
   flex: 1 1 auto !important;
   min-height: 500px !important;
@@ -308,9 +322,15 @@ DEMO_CSS = """
   opacity: 1 !important;
   visibility: visible !important;
 }
-.kin-panel .kinematic-editor-host > div {
+.kin-panel .kinematic-editor-host > .html-container {
   height: 100% !important;
   min-height: 500px !important;
+}
+#kinematic_tree_editor_html > .wrap.center.full.hide,
+#kinematic_tree_editor_html .wrap.center.full.hide {
+  display: none !important;
+  opacity: 0 !important;
+  visibility: hidden !important;
 }
 #kinematic_tree_editor_html {
   display: block !important;
@@ -616,6 +636,7 @@ DEMO_CSS = """
   .kin-panel {
     display: flex !important;
     flex-direction: column !important;
+    order: -1 !important;
     overflow: visible !important;
     opacity: 1 !important;
     visibility: visible !important;
@@ -625,9 +646,9 @@ DEMO_CSS = """
     height: clamp(240px, 44vw, 340px) !important;
   }
   .kin-panel .kinematic-editor-host,
-  .kin-panel .kinematic-editor-host > div,
+  .kin-panel .kinematic-editor-host > .html-container,
   #kinematic_tree_editor_html,
-  #kinematic_tree_editor_html > div,
+  #kinematic_tree_editor_html > .html-container,
   #kinematic_tree_editor_html .html-container {
     display: block !important;
     flex: 0 0 auto !important;
@@ -700,6 +721,13 @@ DEMO_CSS = """
   }
 }
 @media (max-width: 460px) {
+  .kin-panel .kinematic-editor-host,
+  .kin-panel .kinematic-editor-host > .html-container,
+  #kinematic_tree_editor_html,
+  #kinematic_tree_editor_html > .html-container,
+  #kinematic_tree_editor_html .html-container {
+    min-height: 360px !important;
+  }
   .upright-picker-row > .form,
   .upright-picker-row > div {
     flex: 1 1 0 !important;
@@ -720,6 +748,18 @@ DEMO_CSS = """
   .kin-tree-toolbar,
   .prompt-picker-toolbar {
     gap: 6px !important;
+  }
+}
+@media (max-width: 760px) {
+  .kin-panel {
+    gap: 6px !important;
+  }
+  .kin-panel .kinematic-editor-host,
+  .kin-panel .kinematic-editor-host > .html-container,
+  #kinematic_tree_editor_html,
+  #kinematic_tree_editor_html > .html-container,
+  #kinematic_tree_editor_html .html-container {
+    min-height: 390px !important;
   }
 }
 """
@@ -1190,15 +1230,48 @@ KINEMATIC_TREE_EDITOR_CSS = """
     width: min(128px, 46vw) !important;
   }
 }
+@media (max-width: 760px) {
+  #kin-tree-editor.kin-tree-panel {
+    min-height: 390px !important;
+    margin-top: 0 !important;
+  }
+  #kin-tree-editor .kin-tree-header {
+    padding: 8px 10px 6px !important;
+  }
+  #kin-tree-editor .kin-tree-header h3 {
+    margin: 0 !important;
+    font-size: 14px !important;
+  }
+  #kin-tree-editor .kin-tree-header p {
+    display: none !important;
+  }
+  #kin-tree-editor .kin-tree-toolbar {
+    padding: 6px 8px !important;
+    gap: 5px !important;
+  }
+  #kin-tree-editor .kin-tree-toolbar button {
+    height: 28px !important;
+    padding: 0 7px !important;
+    font-size: 12px !important;
+  }
+  #kin-tree-editor .kin-tree-status {
+    display: none !important;
+  }
+  #kin-tree-editor .kin-tree-canvas {
+    flex: 0 0 260px !important;
+    min-height: 260px !important;
+    height: 260px !important;
+  }
+}
 @media (max-width: 460px) {
   #kin-tree-editor.kin-tree-panel {
-    min-height: 500px !important;
+    min-height: 360px !important;
     height: auto !important;
   }
   #kin-tree-editor .kin-tree-canvas {
-    flex-basis: 300px !important;
-    min-height: 300px !important;
-    height: 300px !important;
+    flex-basis: 240px !important;
+    min-height: 240px !important;
+    height: 240px !important;
   }
   #kin-tree-editor .kin-node {
     width: min(128px, 48vw) !important;
@@ -1369,12 +1442,13 @@ KINEMATIC_TREE_EDITOR_JS = r"""
 
     function ensureTreeCanvasSize() {
       const narrow = window.matchMedia("(max-width: 1099px)").matches;
+      const compact = window.matchMedia("(max-width: 760px)").matches;
       const veryNarrow = window.matchMedia("(max-width: 460px)").matches;
       if (!narrow && canvas.clientHeight >= 120 && canvas.clientWidth >= 120) {
         return;
       }
-      const panelHeight = veryNarrow ? 500 : 520;
-      const canvasHeight = veryNarrow ? 300 : 330;
+      const panelHeight = veryNarrow ? 360 : compact ? 390 : 520;
+      const canvasHeight = veryNarrow ? 240 : compact ? 260 : 330;
       root.style.display = "flex";
       root.style.width = "100%";
       root.style.minHeight = `${panelHeight}px`;
@@ -4792,6 +4866,7 @@ def create_gradio_app(app: InstructParticulateApp) -> gr.Blocks:
                 auto_status = gr.Textbox(
                     label="Kinematic Extraction Status",
                     interactive=False,
+                    elem_classes=["kin-extraction-status"],
                 )
                 gr.HTML(
                     _kinematic_tree_editor_html(),

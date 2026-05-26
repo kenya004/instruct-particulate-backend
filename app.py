@@ -3561,9 +3561,10 @@ def _mesh_face_warning_update_from_face_count(face_count: int):
             'font-size:14px!important;line-height:1.35!important;">'
             '<strong style="color:var(--demo-warning-text,#78350f)!important;">'
             f"Large mesh warning:</strong> this mesh has {face_count:,} faces. "
-            "Very dense meshes can exhaust the Space's CPU resources during "
-            "post-processing; for reliable runs, use a mesh with fewer than "
-            f"{HIGH_FACE_COUNT_WARNING_THRESHOLD:,} faces.</div>"
+            "That is too dense for this Space and can exhaust CPU resources. "
+            "Please upload a simplified mesh with fewer than "
+            f"{HIGH_FACE_COUNT_WARNING_THRESHOLD:,} faces; this upload will not be "
+            "rendered or sent to the point prompt picker.</div>"
         ),
         visible=True,
     )
@@ -3581,10 +3582,10 @@ def _count_obj_faces(path: Path) -> int:
     return face_count
 
 
-def _mesh_face_warning_update_from_path(path: Path):
+def _obj_face_count_from_path(path: Path) -> int | None:
     if Path(path).suffix.lower() != ".obj":
-        return gr.update(value="", visible=False)
-    return _mesh_face_warning_update_from_face_count(_count_obj_faces(Path(path)))
+        return None
+    return _count_obj_faces(Path(path))
 
 
 def _mesh_face_warning_update(mesh: Any):
@@ -3708,20 +3709,25 @@ class InstructParticulateApp:
                 gr.update(value=None, interactive=False),
             )
             return
-        early_mesh_face_warning = _mesh_face_warning_update_from_path(mesh_path)
-        yield (
-            str(mesh_path),
-            None,
-            early_mesh_face_warning,
-            default_tree_json,
-            default_point_prompt_json,
-            "",
-            *empty_orientation_previews,
-            "",
-            None,
-            gr.update(interactive=False),
-            gr.update(value=None, interactive=False),
-        )
+        early_face_count = _obj_face_count_from_path(mesh_path)
+        if (
+            early_face_count is not None
+            and early_face_count > HIGH_FACE_COUNT_WARNING_THRESHOLD
+        ):
+            yield (
+                None,
+                None,
+                _mesh_face_warning_update_from_face_count(early_face_count),
+                default_tree_json,
+                default_point_prompt_json,
+                "",
+                *empty_orientation_previews,
+                "",
+                None,
+                gr.update(interactive=False),
+                gr.update(value=None, interactive=False),
+            )
+            return
         try:
             mesh_hash = _mesh_file_sha256(mesh_path)
             mesh = load_trimesh(mesh_path)
@@ -3741,7 +3747,24 @@ class InstructParticulateApp:
             )
             return
 
-        mesh_face_warning = _mesh_face_warning_update(mesh)
+        face_count = len(getattr(mesh, "faces", []))
+        if face_count > HIGH_FACE_COUNT_WARNING_THRESHOLD:
+            yield (
+                None,
+                None,
+                _mesh_face_warning_update_from_face_count(face_count),
+                default_tree_json,
+                default_point_prompt_json,
+                "",
+                *empty_orientation_previews,
+                "",
+                None,
+                gr.update(interactive=False),
+                gr.update(value=None, interactive=False),
+            )
+            return
+
+        mesh_face_warning = _mesh_face_warning_update_from_face_count(face_count)
         cached_upright_previews = _cached_upright_preview_items(mesh_hash)
         rendering_orientation_previews = (
             _upright_preview_paths(cached_upright_previews)
@@ -4993,7 +5016,7 @@ def create_gradio_app(app: InstructParticulateApp) -> gr.Blocks:
         extract_button.click(
             fn=app.extract_kinematic_structure,
             inputs=[
-                input_mesh,
+                loaded_mesh_path,
                 loaded_mesh_hash,
                 kinematic_tree,
                 point_prompts,
@@ -5020,7 +5043,7 @@ def create_gradio_app(app: InstructParticulateApp) -> gr.Blocks:
         gpu_event = run_event.then(
             fn=run_predict_on_gpu,
             inputs=[
-                input_mesh,
+                loaded_mesh_path,
                 loaded_mesh_hash,
                 kinematic_tree,
                 point_prompts,

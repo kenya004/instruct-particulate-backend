@@ -138,6 +138,9 @@ DEMO_CSS = """
   --demo-focus: #2563eb;
   --demo-selected: #16a34a;
   --demo-selected-ring: rgba(22, 163, 74, 0.42);
+  --demo-warning-bg: #fffbeb;
+  --demo-warning-border: #d97706;
+  --demo-warning-text: #78350f;
   color-scheme: light dark;
 }
 @media (prefers-color-scheme: dark) {
@@ -154,6 +157,9 @@ DEMO_CSS = """
     --demo-focus: #60a5fa;
     --demo-selected: #22c55e;
     --demo-selected-ring: rgba(34, 197, 94, 0.48);
+    --demo-warning-bg: #451a03;
+    --demo-warning-border: #f59e0b;
+    --demo-warning-text: #fde68a;
   }
 }
 .demo-row {
@@ -192,17 +198,19 @@ DEMO_CSS = """
   display: none !important;
 }
 .mesh-face-warning {
+  display: block !important;
   margin: 8px 0 12px !important;
   padding: 10px 12px !important;
-  border: 1px solid var(--demo-hover-border) !important;
+  border: 1px solid var(--demo-warning-border) !important;
   border-radius: 6px !important;
-  background: var(--demo-control-bg) !important;
-  color: var(--demo-text) !important;
+  background: var(--demo-warning-bg) !important;
+  color: var(--demo-warning-text) !important;
   box-shadow: 0 1px 3px var(--demo-control-shadow) !important;
 }
+.mesh-face-warning *,
 .mesh-face-warning p {
   margin: 0 !important;
-  color: var(--demo-text) !important;
+  color: var(--demo-warning-text) !important;
   font-size: 14px !important;
   line-height: 1.35 !important;
 }

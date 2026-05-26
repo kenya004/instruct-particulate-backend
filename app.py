@@ -3548,10 +3548,10 @@ def _mesh_face_warning_update(mesh: Any):
         return gr.update(value="", visible=False)
     return gr.update(
         value=(
-            f"**Large mesh warning:** this mesh has {face_count:,} faces. "
+            f"<p><strong>Large mesh warning:</strong> this mesh has {face_count:,} faces. "
             "Very dense meshes can exhaust the Space's CPU resources during "
             "post-processing; for reliable runs, use a mesh with fewer than "
-            f"{HIGH_FACE_COUNT_WARNING_THRESHOLD:,} faces."
+            f"{HIGH_FACE_COUNT_WARNING_THRESHOLD:,} faces.</p>"
         ),
         visible=True,
     )
@@ -4736,7 +4736,7 @@ def create_gradio_app(app: InstructParticulateApp) -> gr.Blocks:
             <p>Upload one object mesh and provide a kinematic tree. The demo predicts part segmentation and joint parameters, then exports animated GLB and URDF assets.</p>
             """
         )
-        mesh_face_warning = gr.Markdown(
+        mesh_face_warning = gr.HTML(
             value="",
             visible=False,
             elem_classes=["mesh-face-warning"],

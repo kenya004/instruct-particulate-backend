@@ -3550,8 +3550,7 @@ def _spaces_gpu(fn):
     return spaces.GPU(duration=duration)(fn)
 
 
-def _mesh_face_warning_update(mesh: Any):
-    face_count = len(getattr(mesh, "faces", []))
+def _mesh_face_warning_update_from_face_count(face_count: int):
     if face_count <= HIGH_FACE_COUNT_WARNING_THRESHOLD:
         return gr.update(value="", visible=False)
     return gr.update(
@@ -3568,6 +3567,28 @@ def _mesh_face_warning_update(mesh: Any):
         ),
         visible=True,
     )
+
+
+def _count_obj_faces(path: Path) -> int:
+    face_count = 0
+    with Path(path).open(encoding="utf-8", errors="ignore") as file:
+        for line in file:
+            if not line.startswith("f "):
+                continue
+            face_vertex_count = len(line[2:].strip().split())
+            if face_vertex_count >= 3:
+                face_count += face_vertex_count - 2
+    return face_count
+
+
+def _mesh_face_warning_update_from_path(path: Path):
+    if Path(path).suffix.lower() != ".obj":
+        return gr.update(value="", visible=False)
+    return _mesh_face_warning_update_from_face_count(_count_obj_faces(Path(path)))
+
+
+def _mesh_face_warning_update(mesh: Any):
+    return _mesh_face_warning_update_from_face_count(len(getattr(mesh, "faces", [])))
 
 
 class InstructParticulateApp:
@@ -3687,6 +3708,20 @@ class InstructParticulateApp:
                 gr.update(value=None, interactive=False),
             )
             return
+        early_mesh_face_warning = _mesh_face_warning_update_from_path(mesh_path)
+        yield (
+            str(mesh_path),
+            None,
+            early_mesh_face_warning,
+            default_tree_json,
+            default_point_prompt_json,
+            "",
+            *empty_orientation_previews,
+            "",
+            None,
+            gr.update(interactive=False),
+            gr.update(value=None, interactive=False),
+        )
         try:
             mesh_hash = _mesh_file_sha256(mesh_path)
             mesh = load_trimesh(mesh_path)

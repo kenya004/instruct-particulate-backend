@@ -217,7 +217,7 @@ DEMO_CSS = """
   border-radius: 8px !important;
   background: var(--demo-control-bg) !important;
   box-shadow: 0 1px 2px var(--demo-control-shadow) !important;
-  padding: 8px 10px 7px !important;
+  padding: 8px 10px !important;
   height: auto !important;
   min-height: 0 !important;
   max-height: none !important;
@@ -406,7 +406,7 @@ DEMO_CSS = """
   flex: 0 0 40px !important;
   height: 40px !important;
   min-height: 40px !important;
-  margin-top: auto !important;
+  margin-top: -6px !important;
   align-items: stretch !important;
   gap: 0 !important;
 }
@@ -1036,8 +1036,9 @@ KINEMATIC_TREE_EDITOR_CSS = """
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  height: 30px;
-  padding: 3px 4px 3px 6px;
+  min-height: 34px;
+  height: auto;
+  padding: 2px 4px 2px 6px;
   border: 1px solid var(--kin-label-border);
   border-radius: 7px;
   background: var(--kin-label-bg);
@@ -1058,6 +1059,7 @@ KINEMATIC_TREE_EDITOR_CSS = """
   -webkit-appearance: menulist !important;
   height: 24px;
   max-width: 92px;
+  margin: 2px 0 !important;
   border: 1px solid var(--kin-control-border) !important;
   border-radius: 5px !important;
   background: var(--kin-control-bg) !important;

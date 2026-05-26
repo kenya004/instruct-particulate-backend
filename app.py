@@ -178,10 +178,12 @@ DEMO_CSS = """
   min-height: 0;
   overflow: hidden;
   color: var(--demo-text) !important;
+  flex-wrap: nowrap !important;
 }
 .demo-panel > .form,
 .demo-panel > div {
   min-height: 0;
+  min-width: 0;
 }
 .kinematic-json-sync {
   display: none !important;
@@ -297,7 +299,17 @@ DEMO_CSS = """
 .kin-panel {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  flex-wrap: nowrap !important;
+  gap: 8px !important;
+}
+.kin-panel > button {
+  flex: 0 0 auto !important;
+  min-height: 40px !important;
+  height: 40px !important;
+}
+.kin-panel > .form {
+  flex: 0 0 auto !important;
+  min-height: 0 !important;
 }
 .kin-extraction-status,
 .kin-extraction-status > div,
@@ -345,7 +357,8 @@ DEMO_CSS = """
 .prompt-panel {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  flex-wrap: nowrap !important;
+  gap: 8px !important;
   overflow-y: auto;
   padding-right: 4px;
 }

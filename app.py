@@ -125,7 +125,6 @@ DEFAULT_KINEMATIC_TREE = {
 DEMO_CSS = """
 :root {
   --demo-top-row-height: 760px;
-  --demo-bottom-row-height: 600px;
   --demo-text: #111827;
   --demo-muted: #4b5563;
   --demo-panel-bg: #f8fafc;
@@ -168,10 +167,10 @@ DEMO_CSS = """
   overflow: hidden;
 }
 .demo-bottom-row {
-  height: var(--demo-bottom-row-height);
-  min-height: var(--demo-bottom-row-height);
-  max-height: var(--demo-bottom-row-height);
-  overflow: hidden;
+  height: auto;
+  min-height: 0;
+  max-height: none;
+  overflow: visible;
 }
 .demo-panel {
   height: 100%;
@@ -184,6 +183,9 @@ DEMO_CSS = """
 .demo-panel > div {
   min-height: 0;
   min-width: 0;
+}
+.demo-bottom-row .demo-panel {
+  height: auto;
 }
 .kinematic-json-sync {
   display: none !important;

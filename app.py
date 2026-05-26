@@ -241,15 +241,16 @@ DEMO_CSS = """
   padding-bottom: 0 !important;
   background: transparent !important;
 }
-.inference-params-title,
-.inference-params-title > div,
-.inference-params-title p {
-  margin: 0 0 6px !important;
+.inference-params-help,
+.inference-params-help > div,
+.inference-params-help p {
+  margin: 0 !important;
   padding: 0 !important;
-  color: var(--demo-text) !important;
-  font-size: 14px !important;
-  font-weight: 600 !important;
-  line-height: 1.25 !important;
+  color: var(--demo-muted) !important;
+  font-size: 12px !important;
+  line-height: 1.35 !important;
+  background: transparent !important;
+  border: 0 !important;
 }
 .toggle-switch input[type="checkbox"] {
   appearance: none !important;
@@ -1120,12 +1121,14 @@ KINEMATIC_TREE_EDITOR_CSS = """
 .kin-node-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   width: 100%;
-  padding: 6px 8px;
+  padding: 6px 7px;
+  box-sizing: border-box;
 }
 .kin-node-delete {
   flex: 0 0 auto;
+  margin-left: auto;
 }
 #kin-tree-editor .kin-node-delete,
 #kin-tree-editor .kin-joint-delete {
@@ -1165,10 +1168,10 @@ KINEMATIC_TREE_EDITOR_CSS = """
   -webkit-text-fill-color: var(--kin-close-cross) !important;
 }
 .kin-node input {
-  flex: 0 0 65%;
+  flex: 1 1 auto;
   min-width: 0;
-  width: 65%;
-  max-width: 65%;
+  width: auto;
+  max-width: none;
   height: 30px;
   border: 1px solid var(--kin-node-input-border);
   border-radius: 5px;
@@ -4958,14 +4961,16 @@ def create_gradio_app(app: InstructParticulateApp) -> gr.Blocks:
                 connectivity = gr.State(True)
                 confidence_temperature = gr.State(1.0)
                 with gr.Column(elem_classes=["inference-params-panel", "inference-params-static"]):
-                    gr.Markdown(
-                        "**Inference Parameters**",
-                        elem_classes=["inference-params-title"],
-                    )
                     strict = gr.Checkbox(
                         label="Connected Component Postprocessing",
                         value=True,
                         elem_classes=["toggle-switch"],
+                    )
+                    gr.Markdown(
+                        "Enable this when the mesh has clean connected components. "
+                        "Each component will stay intact and be assigned to one predicted part; "
+                        "a part may still merge multiple components.",
+                        elem_classes=["inference-params-help"],
                     )
                 with gr.Row(elem_classes=["prompt-run-row"]):
                     run_button = gr.Button("Run Inference", variant="primary")

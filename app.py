@@ -614,7 +614,7 @@ DEMO_CSS = """
   font-size: 13px !important;
   line-height: 1.3 !important;
 }
-@media (max-width: 1099px) {
+@media (max-width: 1279px) {
   .demo-top-row,
   .demo-bottom-row {
     height: auto !important;
@@ -1206,7 +1206,7 @@ KINEMATIC_TREE_EDITOR_CSS = """
     0 8px 18px var(--kin-node-shadow),
     0 0 0 3px rgba(34, 197, 94, 0.78);
 }
-@media (max-width: 1099px) {
+@media (max-width: 1279px) {
   #kin-tree-editor.kin-tree-panel {
     display: flex !important;
     flex: 0 0 auto !important;
@@ -1449,7 +1449,7 @@ KINEMATIC_TREE_EDITOR_JS = r"""
     };
 
     function ensureTreeCanvasSize() {
-      const narrow = window.matchMedia("(max-width: 1099px)").matches;
+      const narrow = window.matchMedia("(max-width: 1279px)").matches;
       const compact = window.matchMedia("(max-width: 760px)").matches;
       const veryNarrow = window.matchMedia("(max-width: 460px)").matches;
       if (!narrow && canvas.clientHeight >= 120 && canvas.clientWidth >= 120) {

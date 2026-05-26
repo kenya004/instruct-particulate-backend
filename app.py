@@ -681,6 +681,22 @@ DEMO_CSS = """
     min-height: 0 !important;
     max-height: none !important;
     overflow: visible !important;
+    display: contents !important;
+  }
+  .mesh-panel {
+    order: 1 !important;
+  }
+  .orientation-panel {
+    order: 2 !important;
+  }
+  .kin-panel {
+    order: 3 !important;
+  }
+  .prompt-panel {
+    order: 4 !important;
+  }
+  .outputs-panel {
+    order: 5 !important;
   }
   .demo-panel {
     height: auto !important;

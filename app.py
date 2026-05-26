@@ -199,7 +199,6 @@ DEMO_CSS = """
 }
 #mesh-face-warning,
 .block.mesh-face-warning {
-  display: block !important;
   margin: 8px 0 12px !important;
   padding: 10px 12px !important;
   border: 1px solid var(--demo-warning-border) !important;

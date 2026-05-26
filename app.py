@@ -198,7 +198,7 @@ DEMO_CSS = """
   display: none !important;
 }
 #mesh-face-warning,
-.mesh-face-warning {
+.block.mesh-face-warning {
   display: block !important;
   margin: 8px 0 12px !important;
   padding: 10px 12px !important;
@@ -207,6 +207,17 @@ DEMO_CSS = """
   background: var(--demo-warning-bg) !important;
   color: var(--demo-warning-text) !important;
   box-shadow: 0 1px 3px var(--demo-control-shadow) !important;
+}
+#mesh-face-warning .html-container,
+#mesh-face-warning .prose,
+#mesh-face-warning .mesh-face-warning:not(.block) {
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: var(--demo-warning-text) !important;
 }
 #mesh-face-warning *,
 #mesh-face-warning p,

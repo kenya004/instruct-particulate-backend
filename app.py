@@ -66,7 +66,6 @@ from instruct_particulate.utils.auto_kinematics_utils import (
     prepare_lifted_prompt_records_for_saving,
     render_mesh_auto_kinematics_views,
     resolve_blender_binary,
-    save_2d_point_prompt_visualizations,
     save_auto_kinematics_artifacts,
 )
 from instruct_particulate.utils.data_utils import (
@@ -602,6 +601,10 @@ DEMO_CSS = """
     height: auto !important;
     min-height: 0 !important;
     max-height: none !important;
+    min-width: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    flex: 0 0 100% !important;
     overflow: visible !important;
   }
   .mesh-panel,
@@ -627,6 +630,10 @@ DEMO_CSS = """
   #kinematic_tree_editor_html > div,
   #kinematic_tree_editor_html .html-container {
     display: block !important;
+    flex: 0 0 auto !important;
+    min-width: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
     min-height: 540px !important;
     height: auto !important;
     opacity: 1 !important;
@@ -653,6 +660,20 @@ DEMO_CSS = """
     flex: 1 1 min(100%, 320px) !important;
   }
   .capped-output {
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+}
+@media (max-height: 820px) {
+  .demo-top-row,
+  .demo-bottom-row {
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+  .demo-panel {
     height: auto !important;
     max-height: none !important;
     overflow: visible !important;
@@ -2131,6 +2152,7 @@ KINEMATIC_TREE_EDITOR_JS = r"""
 
     function render() {
       ensureTreeCanvasSize();
+      clampNodePositions();
       addJointButton.classList.toggle("active", state.connectMode);
       renderEdges();
 
@@ -2483,6 +2505,9 @@ KINEMATIC_TREE_EDITOR_JS = r"""
     loadExternalPromptsFromBox();
     renderPromptMesh();
     syncPrompts();
+    scheduleResponsiveRelayout();
+    window.setTimeout(scheduleResponsiveRelayout, 50);
+    window.setTimeout(scheduleResponsiveRelayout, 250);
     setStatus("Drag links to arrange the tree.");
   }
 
@@ -2780,7 +2805,7 @@ def _auto_kinematics_cache_complete_path(cache_dir: Path) -> Path:
 
 def _cached_auto_kinematics(
     cache_dir: Path,
-) -> tuple[str, str, list[tuple[str, str]]] | None:
+) -> tuple[str, str] | None:
     complete_path = _auto_kinematics_cache_complete_path(cache_dir)
     if not complete_path.exists():
         return None
@@ -2789,25 +2814,11 @@ def _cached_auto_kinematics(
         return None
     tree_path = cache_dir / "demo_kinematic_tree.json"
     prompt_path = cache_dir / "demo_point_prompts.json"
-    renders_dir = cache_dir / "renders"
-    if not tree_path.exists() or not prompt_path.exists() or not renders_dir.exists():
+    if not tree_path.exists() or not prompt_path.exists():
         return None
-    render_paths = sorted(renders_dir.glob("view_*.png"))
-    if len(render_paths) == 0:
-        return None
-    overlay_paths = sorted((cache_dir / "point_prompt_overlays").glob("*.png"))
-    gallery_items = [
-        (str(render_path), f"Render {index}")
-        for index, render_path in enumerate(render_paths)
-    ]
-    gallery_items.extend(
-        (str(overlay_path), f"Prompt overlay {overlay_path.stem}")
-        for overlay_path in overlay_paths
-    )
     return (
         tree_path.read_text(encoding="utf-8").strip(),
         prompt_path.read_text(encoding="utf-8").strip(),
-        gallery_items,
     )
 
 
@@ -3386,21 +3397,6 @@ def _point_prompt_json_from_normalized_prompts(
     return json.dumps({"prompts": prompts}, indent=2)
 
 
-def _auto_render_gallery_items(
-    rendered_views: list[Any],
-    overlay_paths: list[Path] | None = None,
-) -> list[tuple[str, str]]:
-    items: list[tuple[str, str]] = [
-        (
-            str(view.image_path),
-            f"Render {int(view.image_id)} ({float(view.azimuth_deg):.0f} deg)",
-        )
-        for view in rendered_views
-    ]
-    for overlay_path in overlay_paths or []:
-        items.append((str(overlay_path), f"Prompt overlay {overlay_path.stem}"))
-    return items
-
 def _make_inference_args(
     *,
     output_dir: Path,
@@ -3807,32 +3803,29 @@ class InstructParticulateApp:
         current_prompts = current_point_prompt_json or '{"prompts":[]}'
         mesh_path = _extract_gradio_path(mesh_path_value)
         if mesh_path is None:
-            yield current_tree, current_prompts, [], "Upload a mesh first."
+            yield current_tree, current_prompts, "Upload a mesh first."
             return
         if not mesh_path.exists():
-            yield current_tree, current_prompts, [], f"Mesh file does not exist: {mesh_path}"
+            yield current_tree, current_prompts, f"Mesh file does not exist: {mesh_path}"
             return
         if not up_dir:
             yield (
                 current_tree,
                 current_prompts,
-                [],
                 "Select the upright orientation image before extracting the kinematic structure.",
             )
             return
 
-        gallery_items: list[tuple[str, str]] = []
         try:
             canonical_up = canonicalize_up_dir(up_dir)
             mesh_hash = str(mesh_hash_value or _mesh_file_sha256(mesh_path))
             cache_dir = _auto_kinematics_cache_dir(mesh_hash, canonical_up)
             cached_auto = _cached_auto_kinematics(cache_dir)
             if cached_auto is not None:
-                extracted_tree_json, extracted_prompt_json, gallery_items = cached_auto
+                extracted_tree_json, extracted_prompt_json = cached_auto
                 yield (
                     extracted_tree_json,
                     extracted_prompt_json,
-                    gallery_items,
                     "Success (cached)",
                 )
                 return
@@ -3851,7 +3844,6 @@ class InstructParticulateApp:
             yield (
                 current_tree,
                 current_prompts,
-                gallery_items,
                 "Rendering",
             )
             rendered_views = render_mesh_auto_kinematics_views(
@@ -3862,11 +3854,9 @@ class InstructParticulateApp:
                 up_dir=canonical_up,
                 blender_bin=os.environ.get("BLENDER_BIN") or None,
             )
-            gallery_items = _auto_render_gallery_items(rendered_views)
             yield (
                 current_tree,
                 current_prompts,
-                gallery_items,
                 "Identifying and localizing kinematic parts",
             )
 
@@ -3880,7 +3870,6 @@ class InstructParticulateApp:
             yield (
                 current_tree,
                 current_prompts,
-                gallery_items,
                 "Picking 3D point prompts",
             )
 
@@ -3903,13 +3892,6 @@ class InstructParticulateApp:
                 center=np.asarray(mesh_geometry.center, dtype=np.float32),
                 scale=float(mesh_geometry.scale),
             )
-            overlay_paths = save_2d_point_prompt_visualizations(
-                rendered_views=rendered_views,
-                lifted_prompt_records=prepared_prompts["records"],
-                output_dir=auto_output_dir / "point_prompt_overlays",
-            )
-            gallery_items = _auto_render_gallery_items(rendered_views, overlay_paths)
-
             extracted_tree = _auto_tree_from_parsed_response(parsed_response)
             extracted_tree_json = _tree_to_pretty_json(extracted_tree)
             extracted_prompt_json = _point_prompt_json_from_normalized_prompts(
@@ -3936,7 +3918,6 @@ class InstructParticulateApp:
             yield (
                 extracted_tree_json,
                 extracted_prompt_json,
-                gallery_items,
                 "Success",
             )
         except Exception as exc:
@@ -3944,7 +3925,6 @@ class InstructParticulateApp:
             yield (
                 current_tree,
                 current_prompts,
-                gallery_items,
                 f"Auto-kinematic extraction error: {exc}",
             )
         finally:
@@ -4821,14 +4801,6 @@ def create_gradio_app(app: InstructParticulateApp) -> gr.Blocks:
                     container=False,
                     padding=False,
                 )
-                with gr.Accordion("Auto-Kinematic Rendered Images", open=False):
-                    auto_render_gallery = gr.Gallery(
-                        label="Auto-Kinematic Rendered Images",
-                        columns=3,
-                        height=160,
-                        object_fit="contain",
-                        elem_classes=["capped-output"],
-                    )
 
             with gr.Column(scale=1, min_width=300, elem_classes=["demo-panel", "prompt-panel"]):
                 gr.HTML(_point_prompt_picker_html())
@@ -4998,7 +4970,6 @@ def create_gradio_app(app: InstructParticulateApp) -> gr.Blocks:
             outputs=[
                 kinematic_tree,
                 point_prompts,
-                auto_render_gallery,
                 auto_status,
             ],
         )

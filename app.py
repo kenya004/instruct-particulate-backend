@@ -197,6 +197,7 @@ DEMO_CSS = """
 .kinematic-json-sync {
   display: none !important;
 }
+#mesh-face-warning,
 .mesh-face-warning {
   display: block !important;
   margin: 8px 0 12px !important;
@@ -207,6 +208,8 @@ DEMO_CSS = """
   color: var(--demo-warning-text) !important;
   box-shadow: 0 1px 3px var(--demo-control-shadow) !important;
 }
+#mesh-face-warning *,
+#mesh-face-warning p,
 .mesh-face-warning *,
 .mesh-face-warning p {
   margin: 0 !important;
@@ -2828,7 +2831,7 @@ def _compact_json(value: dict[str, Any]) -> str:
     return json.dumps(value, separators=(",", ":"))
 
 
-def _prompt_mesh_payload(mesh: Any, *, max_faces: int = 12000) -> str:
+def _prompt_mesh_payload(mesh: Any) -> str:
     vertices = np.asarray(mesh.vertices, dtype=np.float32)
     faces = np.asarray(mesh.faces, dtype=np.int64)
     if vertices.ndim != 2 or vertices.shape[1] != 3 or len(vertices) == 0:
@@ -2837,11 +2840,6 @@ def _prompt_mesh_payload(mesh: Any, *, max_faces: int = 12000) -> str:
         raise ValueError("Prompt picker requires a triangular mesh.")
 
     face_count = int(faces.shape[0])
-    sampled = False
-    if face_count > max_faces:
-        face_ids = np.linspace(0, face_count - 1, int(max_faces), dtype=np.int64)
-        faces = faces[face_ids]
-        sampled = True
 
     used_vertex_ids = np.unique(faces.reshape(-1))
     remap = np.full((vertices.shape[0],), -1, dtype=np.int64)
@@ -2876,7 +2874,7 @@ def _prompt_mesh_payload(mesh: Any, *, max_faces: int = 12000) -> str:
         "radius": radius,
         "source_faces": face_count,
         "display_faces": int(compact_faces.shape[0]),
-        "sampled": sampled,
+        "sampled": False,
     }
     return _compact_json(payload)
 
@@ -3548,10 +3546,15 @@ def _mesh_face_warning_update(mesh: Any):
         return gr.update(value="", visible=False)
     return gr.update(
         value=(
-            f"<p><strong>Large mesh warning:</strong> this mesh has {face_count:,} faces. "
+            '<div class="mesh-face-warning-content" '
+            'style="display:block!important;margin:0!important;'
+            'color:var(--demo-warning-text,#78350f)!important;'
+            'font-size:14px!important;line-height:1.35!important;">'
+            '<strong style="color:var(--demo-warning-text,#78350f)!important;">'
+            f"Large mesh warning:</strong> this mesh has {face_count:,} faces. "
             "Very dense meshes can exhaust the Space's CPU resources during "
             "post-processing; for reliable runs, use a mesh with fewer than "
-            f"{HIGH_FACE_COUNT_WARNING_THRESHOLD:,} faces.</p>"
+            f"{HIGH_FACE_COUNT_WARNING_THRESHOLD:,} faces.</div>"
         ),
         visible=True,
     )
@@ -4739,6 +4742,7 @@ def create_gradio_app(app: InstructParticulateApp) -> gr.Blocks:
         mesh_face_warning = gr.HTML(
             value="",
             visible=False,
+            elem_id="mesh-face-warning",
             elem_classes=["mesh-face-warning"],
             container=False,
         )

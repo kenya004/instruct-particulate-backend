@@ -3656,11 +3656,15 @@ class InstructParticulateApp:
         mesh_value: Any,
     ):
         empty_orientation_previews = [None] * len(UP_DIR_CHOICES)
+        default_tree_json = _tree_to_pretty_json(DEFAULT_KINEMATIC_TREE)
+        default_point_prompt_json = '{"prompts":[]}'
         mesh_path = _extract_gradio_path(mesh_value)
         if mesh_path is None:
             yield (
                 None,
                 None,
+                default_tree_json,
+                default_point_prompt_json,
                 "",
                 *empty_orientation_previews,
                 "",
@@ -3672,10 +3676,12 @@ class InstructParticulateApp:
         try:
             mesh_hash = _mesh_file_sha256(mesh_path)
             mesh = load_trimesh(mesh_path)
-        except Exception as exc:
+        except Exception:
             yield (
                 None,
                 None,
+                default_tree_json,
+                default_point_prompt_json,
                 "",
                 *empty_orientation_previews,
                 "",
@@ -3699,6 +3705,8 @@ class InstructParticulateApp:
         yield (
             str(mesh_path),
             mesh_hash,
+            default_tree_json,
+            default_point_prompt_json,
             "",
             *rendering_orientation_previews,
             "",
@@ -3709,10 +3717,12 @@ class InstructParticulateApp:
 
         try:
             prompt_mesh_data = _prompt_mesh_payload(mesh)
-        except Exception as exc:
+        except Exception:
             yield (
                 str(mesh_path),
                 mesh_hash,
+                default_tree_json,
+                default_point_prompt_json,
                 "",
                 *rendering_orientation_previews,
                 "",
@@ -3725,6 +3735,8 @@ class InstructParticulateApp:
         yield (
             str(mesh_path),
             mesh_hash,
+            default_tree_json,
+            default_point_prompt_json,
             prompt_mesh_data,
             *rendering_orientation_previews,
             "",
@@ -3736,6 +3748,8 @@ class InstructParticulateApp:
             yield (
                 str(mesh_path),
                 mesh_hash,
+                default_tree_json,
+                default_point_prompt_json,
                 prompt_mesh_data,
                 *_upright_preview_paths(cached_upright_previews),
                 "",
@@ -3756,6 +3770,8 @@ class InstructParticulateApp:
             yield (
                 str(mesh_path),
                 mesh_hash,
+                default_tree_json,
+                default_point_prompt_json,
                 prompt_mesh_data,
                 *empty_orientation_previews,
                 "",
@@ -3768,6 +3784,8 @@ class InstructParticulateApp:
         yield (
             str(mesh_path),
             mesh_hash,
+            default_tree_json,
+            default_point_prompt_json,
             prompt_mesh_data,
             *_upright_preview_paths(upright_previews),
             "",
@@ -4905,6 +4923,8 @@ def create_gradio_app(app: InstructParticulateApp) -> gr.Blocks:
                     outputs=[
                         loaded_mesh_path,
                         loaded_mesh_hash,
+                        kinematic_tree,
+                        point_prompts,
                         point_prompt_mesh_data,
                         *upright_preview_images,
                         selected_up_dir,
@@ -4924,6 +4944,8 @@ def create_gradio_app(app: InstructParticulateApp) -> gr.Blocks:
             outputs=[
                 loaded_mesh_path,
                 loaded_mesh_hash,
+                kinematic_tree,
+                point_prompts,
                 point_prompt_mesh_data,
                 *upright_preview_images,
                 selected_up_dir,

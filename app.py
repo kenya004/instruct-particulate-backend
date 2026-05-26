@@ -226,7 +226,7 @@ DEMO_CSS = """
   background: var(--demo-control-bg) !important;
 }
 .inference-params-panel .form {
-  gap: 6px !important;
+  gap: 0 !important;
   min-height: 0 !important;
   padding: 0 !important;
   background: transparent !important;
@@ -240,6 +240,9 @@ DEMO_CSS = """
   margin-bottom: 0 !important;
   padding-bottom: 0 !important;
   background: transparent !important;
+}
+.inference-params-panel .toggle-switch {
+  margin-bottom: 6px !important;
 }
 .inference-params-help,
 .inference-params-help > div,
@@ -406,7 +409,7 @@ DEMO_CSS = """
   flex: 0 0 40px !important;
   height: 40px !important;
   min-height: 40px !important;
-  margin-top: -6px !important;
+  margin-top: 0 !important;
   align-items: stretch !important;
   gap: 0 !important;
 }

@@ -636,7 +636,7 @@ DEMO_CSS = """
   min-height: 0 !important;
   height: auto !important;
   max-height: none !important;
-  margin: auto 0 0 !important;
+  margin: 0 !important;
   padding: 0 !important;
   background: transparent !important;
   border: 0 !important;

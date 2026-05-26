@@ -24,11 +24,12 @@ from instruct_particulate.utils.visualization_utils import (
 )
 
 
-def _compute_link_geometric_mean_confidences(
+def compute_link_geometric_mean_confidences(
     *,
     query_link_ids: np.ndarray,
     query_confidences: np.ndarray,
 ) -> dict[int, float]:
+    """Computes per-link geometric mean confidence for query visualizations."""
     query_link_ids = np.asarray(query_link_ids, dtype=np.int64)
     query_confidences = np.asarray(query_confidences, dtype=np.float32)
     if query_link_ids.shape != query_confidences.shape:

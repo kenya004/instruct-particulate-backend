@@ -23,9 +23,6 @@ from instruct_particulate.utils.auto_kinematics_utils import (
 )
 from instruct_particulate.utils.export_utils import export_urdf
 from instruct_particulate.utils.inference_utils import (
-    _range_forward_masks_by_child_link,
-    _suppress_unforwarded_joint_ranges,
-    _zero_unforwarded_link_ranges,
     axis_point_to_plucker_torch,
     build_predicted_joint_records_from_links_and_joints,
     build_predicted_kinematic_records,
@@ -43,13 +40,16 @@ from instruct_particulate.utils.inference_utils import (
     prepare_inference_batch_from_meta_root,
     prismatic_directions_from_plucker,
     prompt_for_link_names_and_joints,
+    range_forward_masks_by_child_link,
     resolve_checkpoint_path,
     resolve_input_mode,
     resolve_inference_sampling_config,
     resolve_num_query_points,
     run_joint_refit_from_face_seg,
     run_batched_model_inference,
+    suppress_unforwarded_joint_ranges,
     write_json,
+    zero_unforwarded_link_ranges,
 )
 from instruct_particulate.utils.meta_root_utils import (
     is_supported_meta_root,
@@ -61,11 +61,11 @@ from instruct_particulate.utils.saved_auto_kinematics_utils import (
     load_saved_auto_kinematics_root,
 )
 from instruct_particulate.utils.inference_visualization_utils import (
-    _compute_link_geometric_mean_confidences,
+    compute_link_geometric_mean_confidences,
     print_inference_summary,
-    save_predicted_point_query_visualization,
     save_joint_overparam_visualization_from_model_output,
     save_point_query_visualization,
+    save_predicted_point_query_visualization,
     save_segmented_visualizations,
     select_visualized_link_point_prompts,
 )
@@ -334,16 +334,18 @@ def parse_args() -> argparse.Namespace:
     return args
 
 
-def _tensor_to_numpy(tensor: torch.Tensor, *, dtype: np.dtype[Any] | type) -> np.ndarray:
+def tensor_to_numpy(tensor: torch.Tensor, *, dtype: np.dtype[Any] | type) -> np.ndarray:
+    """Converts a tensor to a CPU NumPy array with the requested dtype."""
     return tensor.detach().cpu().numpy().astype(dtype, copy=False)
 
 
-def _denormalize_points(
+def denormalize_points(
     points: np.ndarray,
     *,
     center: np.ndarray | tuple[float, float, float],
     scale: float,
 ) -> np.ndarray:
+    """Converts normalized model-space points back to mesh-space coordinates."""
     return (
         np.asarray(points, dtype=np.float32) / np.float32(scale)
         + np.asarray(center, dtype=np.float32)
@@ -1391,7 +1393,7 @@ def _apply_confidence_weighted_overparam_joint_voting(
     return weighted_motion_output
 
 
-def _joint_refit_metadata(
+def build_joint_refit_metadata(
     refit_sampling: dict[str, np.ndarray] | None,
     *,
     num_links: int,
@@ -1432,13 +1434,13 @@ def _query_visualization_part_confidences_from_motion_output(
     if joint_decoding_link_ids is None or joint_decoding_confidences is None:
         return None
 
-    return _compute_link_geometric_mean_confidences(
-        query_link_ids=_tensor_to_numpy(joint_decoding_link_ids[0], dtype=np.int64),
-        query_confidences=_tensor_to_numpy(joint_decoding_confidences[0], dtype=np.float32),
+    return compute_link_geometric_mean_confidences(
+        query_link_ids=tensor_to_numpy(joint_decoding_link_ids[0], dtype=np.int64),
+        query_confidences=tensor_to_numpy(joint_decoding_confidences[0], dtype=np.float32),
     )
 
 
-def _decode_face_part_ids(
+def decode_face_part_ids(
     mesh: Any,
     *,
     point_part_ids: np.ndarray,
@@ -1466,7 +1468,7 @@ def _decode_face_part_ids(
     return face_part_ids, face_part_ids_unrefined
 
 
-def _compute_motion_prediction_artifacts(
+def compute_motion_prediction_artifacts(
     args: argparse.Namespace,
     *,
     model: Particulate2ArticulationModel,
@@ -1590,7 +1592,7 @@ def _save_query_predictions(
 ) -> None:
     """Writes first-pass query predictions plus optional joint-refit debug arrays."""
     payload: dict[str, np.ndarray] = {
-        "query_points": _denormalize_points(
+        "query_points": denormalize_points(
             query_points,
             center=center,
             scale=scale,
@@ -1605,7 +1607,7 @@ def _save_query_predictions(
     if joint_refit_sampling is not None:
         payload.update(
             {
-                "joint_refit_query_points": _denormalize_points(
+                "joint_refit_query_points": denormalize_points(
                     joint_refit_sampling["query_points"],
                     center=center,
                     scale=scale,
@@ -1634,7 +1636,7 @@ def _missing_link_ids(num_links: int, unique_part_ids: np.ndarray) -> list[int]:
     )
 
 
-def _resolve_visualized_batch_link_point_prompts(
+def resolve_visualized_batch_link_point_prompts(
     *,
     args: argparse.Namespace,
     batch: dict[str, Any],
@@ -1647,8 +1649,8 @@ def _resolve_visualized_batch_link_point_prompts(
     if link_point_prompts is None:
         return np.zeros((0, 3), dtype=np.float32), np.zeros((0,), dtype=np.int64)
 
-    link_point_prompts_world = _denormalize_points(
-        _tensor_to_numpy(link_point_prompts[0], dtype=np.float32),
+    link_point_prompts_world = denormalize_points(
+        tensor_to_numpy(link_point_prompts[0], dtype=np.float32),
         center=center,
         scale=scale,
     )
@@ -1656,7 +1658,7 @@ def _resolve_visualized_batch_link_point_prompts(
     dropout_eligible_np = (
         None
         if dropout_eligible is None
-        else _tensor_to_numpy(dropout_eligible[0], dtype=np.bool_)
+        else tensor_to_numpy(dropout_eligible[0], dtype=np.bool_)
     )
     return select_visualized_link_point_prompts(
         link_point_prompts=link_point_prompts_world,
@@ -1666,7 +1668,7 @@ def _resolve_visualized_batch_link_point_prompts(
     )
 
 
-def _base_metadata(
+def build_base_metadata(
     args: argparse.Namespace,
     *,
     mode: str,
@@ -1679,6 +1681,7 @@ def _base_metadata(
     joint_refit_num_query_points: int,
     sharp_point_ratio: float,
 ) -> dict[str, Any]:
+    """Builds the metadata fields common to mesh and meta-root inference."""
     return {
         "mode": mode,
         "input_path": str(input_path),
@@ -1704,7 +1707,7 @@ def _base_metadata(
     }
 
 
-def _write_metadata_and_summary(
+def write_metadata_and_summary(
     *,
     output_dir: Path,
     metadata: dict[str, Any],
@@ -1879,7 +1882,7 @@ def _prepare_saved_auto_kinematics_mesh_batch(
     )
 
 
-def _prepare_mesh_geometry(
+def prepare_mesh_geometry(
     *,
     input_path: Path,
     up_dir: str,
@@ -2004,7 +2007,7 @@ def _run_mesh_like_prediction(
     point_part_ids = (
         output["segmentation_logits"].argmax(dim=-1)[0].detach().cpu().numpy().astype(np.int32)
     )
-    face_part_ids, face_part_ids_unrefined = _decode_face_part_ids(
+    face_part_ids, face_part_ids_unrefined = decode_face_part_ids(
         normalized_mesh,
         point_part_ids=point_part_ids,
         point_part_probabilities=point_part_probabilities,
@@ -2015,7 +2018,7 @@ def _run_mesh_like_prediction(
             getattr(args, "enforce_connectivity_per_part", False)
         ),
     )
-    motion_artifacts = _compute_motion_prediction_artifacts(
+    motion_artifacts = compute_motion_prediction_artifacts(
         args,
         model=model,
         batch=batch,
@@ -2027,8 +2030,8 @@ def _run_mesh_like_prediction(
         scale=scale,
     )
     return {
-        "query_points": _tensor_to_numpy(batch["query_points"][0], dtype=np.float32),
-        "query_normals": _tensor_to_numpy(batch["query_point_normals"][0], dtype=np.float32),
+        "query_points": tensor_to_numpy(batch["query_points"][0], dtype=np.float32),
+        "query_normals": tensor_to_numpy(batch["query_point_normals"][0], dtype=np.float32),
         "point_part_ids": point_part_ids,
         "face_part_ids": face_part_ids,
         "face_part_ids_unrefined": face_part_ids_unrefined,
@@ -2036,7 +2039,7 @@ def _run_mesh_like_prediction(
     }
 
 
-def _write_mesh_like_prediction_files(
+def write_mesh_like_prediction_files(
     output_dir: Path,
     *,
     face_part_ids: np.ndarray,
@@ -2064,7 +2067,7 @@ def _write_mesh_like_prediction_files(
     )
 
 
-def _write_kinematic_and_overparam_visualization(
+def write_kinematic_and_overparam_visualization(
     output_dir: Path,
     *,
     kinematic_records: dict[str, Any],
@@ -2082,14 +2085,14 @@ def _write_kinematic_and_overparam_visualization(
         kinematic_records if visualization_records is None else visualization_records
     )
     if joint_refit_sampling is None:
-        overparam_visualization_query_points = _denormalize_points(
+        overparam_visualization_query_points = denormalize_points(
             query_points,
             center=np.asarray(center, dtype=np.float32),
             scale=scale,
         )
         overparam_visualization_link_ids = np.asarray(point_part_ids, dtype=np.int32)
     else:
-        overparam_visualization_query_points = _denormalize_points(
+        overparam_visualization_query_points = denormalize_points(
             joint_refit_sampling["query_points"],
             center=np.asarray(center, dtype=np.float32),
             scale=scale,
@@ -2110,7 +2113,7 @@ def _write_kinematic_and_overparam_visualization(
     )
 
 
-def _save_articulated_mesh_outputs(
+def save_articulated_mesh_outputs(
     args: argparse.Namespace,
     *,
     output_dir: Path,
@@ -2192,7 +2195,7 @@ def run_mesh_inference(
         mesh_input_path = saved_auto_root.mesh_path
         mesh_input_up_dir = saved_auto_root.mesh_up_dir
         mode = "saved_auto_kinematics_root"
-    mesh_geometry = _prepare_mesh_geometry(
+    mesh_geometry = prepare_mesh_geometry(
         input_path=mesh_input_path,
         up_dir=mesh_input_up_dir,
     )
@@ -2249,7 +2252,7 @@ def run_mesh_inference(
     face_part_ids_unrefined = prediction["face_part_ids_unrefined"]
     query_points = prediction["query_points"]
 
-    _write_mesh_like_prediction_files(
+    write_mesh_like_prediction_files(
         output_dir,
         face_part_ids=face_part_ids,
         query_points=query_points,
@@ -2276,7 +2279,7 @@ def run_mesh_inference(
         prismatic_parameter_valid=motion_arrays_normalized["prismatic_parameter_valid"],
     )
     visualization_link_point_prompts_world, visualization_link_point_prompt_ids = (
-        _resolve_visualized_batch_link_point_prompts(
+        resolve_visualized_batch_link_point_prompts(
             args=args,
             batch=mesh_batch.batch,
             links=predicted_kinematic["links"],
@@ -2286,7 +2289,7 @@ def run_mesh_inference(
     )
     visualization_path = save_predicted_point_query_visualization(
         output_dir,
-        query_points=_denormalize_points(
+        query_points=denormalize_points(
             query_points,
             center=mesh_geometry.center,
             scale=mesh_geometry.scale,
@@ -2301,7 +2304,7 @@ def run_mesh_inference(
             motion_output
         ),
     )
-    overparam_visualization_path = _write_kinematic_and_overparam_visualization(
+    overparam_visualization_path = write_kinematic_and_overparam_visualization(
         output_dir,
         kinematic_records=predicted_kinematic,
         visualization_records=None,
@@ -2312,7 +2315,7 @@ def run_mesh_inference(
         center=mesh_geometry.center,
         scale=mesh_geometry.scale,
     )
-    unique_part_ids = _save_articulated_mesh_outputs(
+    unique_part_ids = save_articulated_mesh_outputs(
         args,
         output_dir=output_dir,
         original_mesh=mesh_geometry.original_mesh,
@@ -2344,7 +2347,7 @@ def run_mesh_inference(
             prismatic_range=motion_arrays_normalized["prismatic_range"],
         )
 
-    metadata = _base_metadata(
+    metadata = build_base_metadata(
         args,
         mode=mode,
         input_path=input_path,
@@ -2382,13 +2385,13 @@ def run_mesh_inference(
             "reoriented_to_canonical_z_up": bool(mesh_input_up_dir != "+Z"),
             "rotation_matrix": mesh_geometry.up_dir_rotation.tolist(),
         },
-    } | _joint_refit_metadata(
+    } | build_joint_refit_metadata(
         joint_refit_sampling,
         num_links=len(mesh_batch.link_names),
     )
     if mesh_batch.auto_kinematics_metadata:
         metadata["auto_kinematics"] = mesh_batch.auto_kinematics_metadata
-    _write_metadata_and_summary(
+    write_metadata_and_summary(
         output_dir=output_dir,
         metadata=metadata,
         checkpoint_path=checkpoint_path,
@@ -2465,20 +2468,20 @@ def run_meta_root_inference(
     (
         gt_revolute_range_forward_mask,
         gt_prismatic_range_forward_mask,
-    ) = _range_forward_masks_by_child_link(
+    ) = range_forward_masks_by_child_link(
         meta_info["sorted_joints"],
         num_links=len(meta_info["link_names"]),
     )
-    forwarded_revolute_range_world = _zero_unforwarded_link_ranges(
+    forwarded_revolute_range_world = zero_unforwarded_link_ranges(
         motion_arrays_world["revolute_range"],
         forward_mask=gt_revolute_range_forward_mask,
     )
-    forwarded_prismatic_range_world = _zero_unforwarded_link_ranges(
+    forwarded_prismatic_range_world = zero_unforwarded_link_ranges(
         motion_arrays_world["prismatic_range"],
         forward_mask=gt_prismatic_range_forward_mask,
     )
     output_dir = _resolve_output_dir(args, meta_root)
-    _write_mesh_like_prediction_files(
+    write_mesh_like_prediction_files(
         output_dir,
         face_part_ids=face_part_ids,
         query_points=query_points,
@@ -2502,7 +2505,7 @@ def run_meta_root_inference(
         revolute_parameter_valid=motion_arrays_normalized["revolute_parameter_valid"],
         prismatic_parameter_valid=motion_arrays_normalized["prismatic_parameter_valid"],
     )
-    predicted_kinematic["joints"] = _suppress_unforwarded_joint_ranges(
+    predicted_kinematic["joints"] = suppress_unforwarded_joint_ranges(
         predicted_kinematic["joints"],
         revolute_range_forward_mask=gt_revolute_range_forward_mask,
         prismatic_range_forward_mask=gt_prismatic_range_forward_mask,
@@ -2518,13 +2521,13 @@ def run_meta_root_inference(
         revolute_parameter_valid=motion_arrays_normalized["revolute_parameter_valid"],
         prismatic_parameter_valid=motion_arrays_normalized["prismatic_parameter_valid"],
     )
-    predicted_joint_records["joints"] = _suppress_unforwarded_joint_ranges(
+    predicted_joint_records["joints"] = suppress_unforwarded_joint_ranges(
         predicted_joint_records["joints"],
         revolute_range_forward_mask=gt_revolute_range_forward_mask,
         prismatic_range_forward_mask=gt_prismatic_range_forward_mask,
     )
     visualization_link_point_prompts_world, visualization_link_point_prompt_ids = (
-        _resolve_visualized_batch_link_point_prompts(
+        resolve_visualized_batch_link_point_prompts(
             args=args,
             batch=batch,
             links=predicted_joint_records["links"],
@@ -2532,7 +2535,7 @@ def run_meta_root_inference(
             scale=scale,
         )
     )
-    overparam_visualization_path = _write_kinematic_and_overparam_visualization(
+    overparam_visualization_path = write_kinematic_and_overparam_visualization(
         output_dir,
         kinematic_records=predicted_kinematic,
         visualization_records=predicted_joint_records,
@@ -2548,7 +2551,7 @@ def run_meta_root_inference(
         (int(joint["parent_link_id"]), int(joint["child_link_id"]))
         for joint in meta_info["sorted_joints"]
     ]
-    unique_part_ids = _save_articulated_mesh_outputs(
+    unique_part_ids = save_articulated_mesh_outputs(
         args,
         output_dir=output_dir,
         original_mesh=original_mesh,
@@ -2590,7 +2593,7 @@ def run_meta_root_inference(
 
     visualization_path = save_point_query_visualization(
         output_dir,
-        query_points=_denormalize_points(
+        query_points=denormalize_points(
             query_points,
             center=np.asarray(center, dtype=np.float32),
             scale=scale,
@@ -2608,7 +2611,7 @@ def run_meta_root_inference(
         gt_joints=meta_info["sorted_joints"],
     )
 
-    metadata = _base_metadata(
+    metadata = build_base_metadata(
         args,
         mode="meta_root",
         input_path=meta_root,
@@ -2644,7 +2647,7 @@ def run_meta_root_inference(
             "center": np.asarray(center, dtype=np.float32).tolist(),
             "scale": float(scale),
         },
-    } | _joint_refit_metadata(
+    } | build_joint_refit_metadata(
         joint_refit_sampling,
         num_links=len(meta_info["link_names"]),
     )
@@ -2655,7 +2658,7 @@ def run_meta_root_inference(
         metadata["legacy_meta_path"] = str(meta_root / "meta.npz")
         metadata["legacy_link_axes_plucker_path"] = str(meta_root / "link_axes_plucker.npz")
         metadata["legacy_link_range_path"] = str(meta_root / "link_range.npz")
-    _write_metadata_and_summary(
+    write_metadata_and_summary(
         output_dir=output_dir,
         metadata=metadata,
         checkpoint_path=checkpoint_path,

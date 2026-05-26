@@ -43,17 +43,18 @@ except ImportError:
     spaces = None
 
 from infer import (
-    _base_metadata,
-    _compute_motion_prediction_artifacts,
-    _decode_face_part_ids,
-    _denormalize_points,
-    _joint_refit_metadata,
-    _resolve_visualized_batch_link_point_prompts,
-    _save_articulated_mesh_outputs,
-    _write_kinematic_and_overparam_visualization,
-    _write_mesh_like_prediction_files,
-    _write_metadata_and_summary,
-    _tensor_to_numpy,
+    build_base_metadata,
+    build_joint_refit_metadata,
+    compute_motion_prediction_artifacts,
+    decode_face_part_ids,
+    denormalize_points,
+    prepare_mesh_geometry,
+    resolve_visualized_batch_link_point_prompts,
+    save_articulated_mesh_outputs,
+    tensor_to_numpy,
+    write_kinematic_and_overparam_visualization,
+    write_mesh_like_prediction_files,
+    write_metadata_and_summary,
 )
 from instruct_particulate.model import Particulate2ArticulationModel
 from instruct_particulate.utils.auto_kinematics_utils import (
@@ -2860,7 +2861,7 @@ def _up_dir_slug(up_dir: str) -> str:
     return up_dir.replace("+", "pos").replace("-", "neg")
 
 
-def _upright_rendering_gallery_item() -> list[tuple[str, str]]:
+def _upright_rendering_placeholder_path() -> str:
     from PIL import Image, ImageDraw, ImageFont
 
     placeholder_path = OUTPUT_ROOT / "_ui" / "upright_orientation_rendering.png"
@@ -2891,11 +2892,11 @@ def _upright_rendering_gallery_item() -> list[tuple[str, str]]:
             font=small_font,
         )
         image.save(placeholder_path)
-    return [(str(placeholder_path), "Rendering")]
+    return str(placeholder_path)
 
 
 def _upright_rendering_preview_paths() -> list[str]:
-    placeholder_path = _upright_rendering_gallery_item()[0][0]
+    placeholder_path = _upright_rendering_placeholder_path()
     return [placeholder_path for _ in UP_DIR_CHOICES]
 
 
@@ -4052,8 +4053,8 @@ class InstructParticulateApp:
                 .numpy()
                 .astype(np.int32)
             )
-            query_points = _tensor_to_numpy(batch["query_points"][0], dtype=np.float32)
-            query_normals = _tensor_to_numpy(
+            query_points = tensor_to_numpy(batch["query_points"][0], dtype=np.float32)
+            query_normals = tensor_to_numpy(
                 batch["query_point_normals"][0],
                 dtype=np.float32,
             )
@@ -4130,7 +4131,7 @@ class InstructParticulateApp:
         ]
         batch = payload["batch"]
         visualization_link_point_prompts_world, visualization_link_point_prompt_ids = (
-            _resolve_visualized_batch_link_point_prompts(
+            resolve_visualized_batch_link_point_prompts(
                 args=args,
                 batch=batch,
                 links=links_for_query_visualization,
@@ -4144,7 +4145,7 @@ class InstructParticulateApp:
         query_face_indices = np.asarray(payload["query_face_indices"], dtype=np.int64)
         early_visualization_path = save_predicted_point_query_rest_visualization(
             output_dir,
-            query_points=_denormalize_points(
+            query_points=denormalize_points(
                 query_points,
                 center=mesh_geometry.center,
                 scale=mesh_geometry.scale,
@@ -4155,7 +4156,7 @@ class InstructParticulateApp:
             link_point_prompt_ids=visualization_link_point_prompt_ids,
             links=links_for_query_visualization,
         )
-        face_part_ids, face_part_ids_unrefined = _decode_face_part_ids(
+        face_part_ids, face_part_ids_unrefined = decode_face_part_ids(
             mesh_geometry.normalized_mesh,
             point_part_ids=point_part_ids,
             point_part_probabilities=np.asarray(
@@ -4212,7 +4213,7 @@ class InstructParticulateApp:
             mesh_geometry = self._prepare_geometry(mesh_path, canonical_up)
             batch = _to_device_payload(payload["batch"], device)
             face_part_ids = np.asarray(payload["face_part_ids"], dtype=np.int32)
-            motion_artifacts = _compute_motion_prediction_artifacts(
+            motion_artifacts = compute_motion_prediction_artifacts(
                 args,
                 model=model,
                 batch=batch,
@@ -4323,9 +4324,7 @@ class InstructParticulateApp:
         )
 
     def _prepare_geometry(self, mesh_path: Path, up_dir: str):
-        from infer import _prepare_mesh_geometry
-
-        return _prepare_mesh_geometry(input_path=mesh_path, up_dir=up_dir)
+        return prepare_mesh_geometry(input_path=mesh_path, up_dir=up_dir)
 
     def _segmentation_num_query_points(
         self,
@@ -4468,7 +4467,7 @@ class InstructParticulateApp:
         face_part_ids = prediction["face_part_ids"]
         query_points = prediction["query_points"]
 
-        _write_mesh_like_prediction_files(
+        write_mesh_like_prediction_files(
             output_dir,
             face_part_ids=face_part_ids,
             query_points=query_points,
@@ -4495,7 +4494,7 @@ class InstructParticulateApp:
             revolute_parameter_valid=motion_arrays_normalized["revolute_parameter_valid"],
             prismatic_parameter_valid=motion_arrays_normalized["prismatic_parameter_valid"],
         )
-        overparam_visualization_path = _write_kinematic_and_overparam_visualization(
+        overparam_visualization_path = write_kinematic_and_overparam_visualization(
             output_dir,
             kinematic_records=predicted_kinematic,
             visualization_records=None,
@@ -4506,7 +4505,7 @@ class InstructParticulateApp:
             center=mesh_geometry.center,
             scale=mesh_geometry.scale,
         )
-        unique_part_ids = _save_articulated_mesh_outputs(
+        unique_part_ids = save_articulated_mesh_outputs(
             args,
             output_dir=output_dir,
             original_mesh=mesh_geometry.original_mesh,
@@ -4536,7 +4535,7 @@ class InstructParticulateApp:
             link_names=link_names,
         )
 
-        metadata = _base_metadata(
+        metadata = build_base_metadata(
             args,
             mode="mesh",
             input_path=mesh_path,
@@ -4570,11 +4569,11 @@ class InstructParticulateApp:
                 "reoriented_to_canonical_z_up": bool(up_dir != "+Z"),
                 "rotation_matrix": mesh_geometry.up_dir_rotation.tolist(),
             },
-        } | _joint_refit_metadata(
+        } | build_joint_refit_metadata(
             joint_refit_sampling,
             num_links=len(link_names),
         )
-        _write_metadata_and_summary(
+        write_metadata_and_summary(
             output_dir=output_dir,
             metadata=metadata,
             checkpoint_path=self.checkpoint_path,

@@ -49,15 +49,17 @@ def resolve_num_query_points(
 
 
 def write_json(path: Path, payload: Any) -> None:
+    """Writes a JSON payload with stable indentation."""
     with path.open("w", encoding="utf-8") as fh:
         json.dump(payload, fh, indent=2)
 
 
-def _range_forward_masks_by_child_link(
+def range_forward_masks_by_child_link(
     joints: Sequence[dict[str, Any]],
     *,
     num_links: int,
 ) -> tuple[np.ndarray, np.ndarray]:
+    """Builds masks for links whose joint ranges are present in metadata."""
     revolute_range_forward_mask = np.zeros((num_links,), dtype=np.bool_)
     prismatic_range_forward_mask = np.zeros((num_links,), dtype=np.bool_)
     for joint in joints:
@@ -73,12 +75,13 @@ def _range_forward_masks_by_child_link(
     return revolute_range_forward_mask, prismatic_range_forward_mask
 
 
-def _suppress_unforwarded_joint_ranges(
+def suppress_unforwarded_joint_ranges(
     joints: Sequence[dict[str, Any]],
     *,
     revolute_range_forward_mask: np.ndarray,
     prismatic_range_forward_mask: np.ndarray,
 ) -> list[dict[str, Any]]:
+    """Returns joint records with non-forwarded ranges removed."""
     suppressed_joints: list[dict[str, Any]] = []
     for joint in joints:
         child_link_id = int(joint["child_link_id"])
@@ -91,11 +94,12 @@ def _suppress_unforwarded_joint_ranges(
     return suppressed_joints
 
 
-def _zero_unforwarded_link_ranges(
+def zero_unforwarded_link_ranges(
     link_ranges: np.ndarray,
     *,
     forward_mask: np.ndarray,
 ) -> np.ndarray:
+    """Zeros per-link ranges that were not forwarded from source metadata."""
     masked_ranges = np.asarray(link_ranges, dtype=np.float32).copy()
     if masked_ranges.shape != (len(forward_mask), 2):
         raise ValueError(

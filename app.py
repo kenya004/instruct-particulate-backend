@@ -3512,7 +3512,7 @@ def _preload_weights_enabled() -> bool:
 
 
 def _spaces_gpu(fn):
-    duration = max(1, min(int(os.environ.get("SPACES_GPU_DURATION", "10")), 10))
+    duration = max(1, min(int(os.environ.get("SPACES_GPU_DURATION", "20")), 20))
     return spaces.GPU(duration=duration)(fn)
 
 

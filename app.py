@@ -137,6 +137,8 @@ DEMO_CSS = """
   --demo-hover-border: #94a3b8;
   --demo-chip-bg: rgba(255, 255, 255, 0.88);
   --demo-chip-text: #111827;
+  --demo-control-bg: rgba(255, 255, 255, 0.78);
+  --demo-control-shadow: rgba(15, 23, 42, 0.06);
   --demo-focus: #2563eb;
   --demo-selected: #16a34a;
   --demo-selected-ring: rgba(22, 163, 74, 0.42);
@@ -151,6 +153,8 @@ DEMO_CSS = """
     --demo-hover-border: #64748b;
     --demo-chip-bg: rgba(15, 23, 42, 0.9);
     --demo-chip-text: #f8fafc;
+    --demo-control-bg: rgba(15, 23, 42, 0.72);
+    --demo-control-shadow: rgba(0, 0, 0, 0.24);
     --demo-focus: #60a5fa;
     --demo-selected: #22c55e;
     --demo-selected-ring: rgba(34, 197, 94, 0.48);
@@ -204,15 +208,22 @@ DEMO_CSS = """
   min-height: 0 !important;
   max-height: none !important;
   overflow: visible !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 6px !important;
 }
 .inference-params-static {
   border: 1px solid var(--demo-border) !important;
-  border-radius: 6px !important;
-  background: transparent !important;
-  padding: 8px 10px !important;
+  border-radius: 8px !important;
+  background: var(--demo-control-bg) !important;
+  box-shadow: 0 1px 2px var(--demo-control-shadow) !important;
+  padding: 8px 10px 7px !important;
   height: auto !important;
   min-height: 0 !important;
   max-height: none !important;
+}
+.inference-params-static.gr-group {
+  background: var(--demo-control-bg) !important;
 }
 .inference-params-panel .form {
   gap: 6px !important;
@@ -358,9 +369,23 @@ DEMO_CSS = """
   display: flex;
   flex-direction: column;
   flex-wrap: nowrap !important;
-  gap: 8px !important;
+  gap: 6px !important;
   overflow-y: auto;
   padding-right: 4px;
+}
+.prompt-panel .point-prompt-picker-host,
+.prompt-panel .point-prompt-picker-host > .html-container {
+  flex: 0 0 420px !important;
+  height: 420px !important;
+  min-height: 420px !important;
+  max-height: 420px !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  overflow: hidden !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  background: transparent !important;
+  border: 0 !important;
 }
 .prompt-panel #point-prompt-picker {
   flex: 0 0 420px !important;
@@ -377,7 +402,16 @@ DEMO_CSS = """
   visibility: visible !important;
 }
 .prompt-panel .prompt-run-row {
-  flex: 0 0 auto;
+  flex: 0 0 40px !important;
+  height: 40px !important;
+  min-height: 40px !important;
+  margin-top: auto !important;
+  align-items: stretch !important;
+  gap: 0 !important;
+}
+.prompt-panel .prompt-run-row button {
+  height: 40px !important;
+  min-height: 40px !important;
 }
 .orientation-panel {
   display: flex;
@@ -550,7 +584,7 @@ DEMO_CSS = """
   container-type: inline-size;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
   overflow-y: auto;
   padding-right: 4px;
 }
@@ -607,20 +641,29 @@ DEMO_CSS = """
 .compact-status {
   flex: 0 0 auto !important;
   min-height: 0 !important;
-  margin: 0 !important;
+  height: auto !important;
+  max-height: none !important;
+  margin: auto 0 0 !important;
   padding: 0 !important;
   background: transparent !important;
   border: 0 !important;
   color: var(--demo-muted) !important;
 }
 .compact-status > div,
+.compact-status .markdown,
+.compact-status .md,
 .compact-status .prose,
 .compact-status p {
   min-height: 0 !important;
+  height: auto !important;
   margin: 0 !important;
   padding: 0 !important;
   background: transparent !important;
   border: 0 !important;
+}
+.compact-status:has(.prose:empty),
+.compact-status:has(p:empty) {
+  display: none !important;
 }
 .compact-status p {
   color: var(--demo-muted) !important;
@@ -678,9 +721,12 @@ DEMO_CSS = """
     visibility: visible !important;
     overflow: visible !important;
   }
+  .prompt-panel .point-prompt-picker-host,
+  .prompt-panel .point-prompt-picker-host > .html-container,
   .prompt-panel #point-prompt-picker {
     flex: 0 0 clamp(360px, 58vw, 500px) !important;
     height: clamp(360px, 58vw, 500px) !important;
+    min-height: clamp(360px, 58vw, 500px) !important;
     max-height: none !important;
   }
   .prompt-panel .inference-params-panel {
@@ -4899,14 +4945,19 @@ def create_gradio_app(app: InstructParticulateApp) -> gr.Blocks:
                 )
 
             with gr.Column(scale=1, min_width=300, elem_classes=["demo-panel", "prompt-panel"]):
-                gr.HTML(_point_prompt_picker_html())
+                gr.HTML(
+                    _point_prompt_picker_html(),
+                    elem_classes=["point-prompt-picker-host"],
+                    container=False,
+                    padding=False,
+                )
                 num_query_points = gr.State(51200)
                 per_face_queries = gr.State(3)
                 query_batch_size = gr.State(51200)
                 animation_frames = gr.State(50)
                 connectivity = gr.State(True)
                 confidence_temperature = gr.State(1.0)
-                with gr.Group(elem_classes=["inference-params-panel", "inference-params-static"]):
+                with gr.Column(elem_classes=["inference-params-panel", "inference-params-static"]):
                     gr.Markdown(
                         "**Inference Parameters**",
                         elem_classes=["inference-params-title"],

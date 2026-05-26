@@ -928,7 +928,7 @@ KINEMATIC_TREE_EDITOR_CSS = """
   border: 1px solid var(--kin-panel-border);
   border-radius: 8px;
   background: var(--kin-panel-bg);
-  margin: 8px 0 0;
+  margin: 0;
   overflow: hidden;
   flex: 1 1 auto;
   min-height: 500px;
@@ -938,16 +938,16 @@ KINEMATIC_TREE_EDITOR_CSS = """
   flex-direction: column;
 }
 .kin-tree-header {
-  padding: 12px 14px 9px;
+  padding: 8px 12px !important;
   border-bottom: 1px solid var(--kin-panel-border);
 }
-.kin-tree-header h3 {
-  margin: 0 0 6px;
+#kin-tree-editor .kin-tree-header h3 {
+  margin: 0 0 5px !important;
   font-size: 16px;
   color: var(--kin-text) !important;
 }
-.kin-tree-header p {
-  margin: 0;
+#kin-tree-editor .kin-tree-header p {
+  margin: 0 !important;
   max-width: 68ch;
   color: var(--kin-muted) !important;
   font-size: 13px;
@@ -1216,16 +1216,16 @@ KINEMATIC_TREE_EDITOR_CSS = """
   flex-direction: column;
 }
 .prompt-picker-header {
-  padding: 10px 12px;
+  padding: 8px 12px !important;
   border-bottom: 1px solid var(--kin-panel-border);
 }
-.prompt-picker-header h3 {
-  margin: 0 0 5px;
+#point-prompt-picker .prompt-picker-header h3 {
+  margin: 0 0 5px !important;
   font-size: 15px;
   color: var(--kin-text) !important;
 }
-.prompt-picker-header p {
-  margin: 0;
+#point-prompt-picker .prompt-picker-header p {
+  margin: 0 !important;
   max-width: 62ch;
   color: var(--kin-muted) !important;
   font-size: 13px;
@@ -1327,14 +1327,16 @@ KINEMATIC_TREE_EDITOR_CSS = """
     margin-top: 0 !important;
   }
   #kin-tree-editor .kin-tree-header {
-    padding: 8px 10px 6px !important;
+    padding: 8px 10px !important;
   }
   #kin-tree-editor .kin-tree-header h3 {
-    margin: 0 !important;
+    margin: 0 0 4px !important;
     font-size: 14px !important;
   }
   #kin-tree-editor .kin-tree-header p {
-    display: none !important;
+    display: block !important;
+    font-size: 12px !important;
+    line-height: 1.35 !important;
   }
   #kin-tree-editor .kin-tree-toolbar {
     padding: 6px 8px !important;

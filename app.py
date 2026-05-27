@@ -3657,10 +3657,6 @@ def _obj_face_count_from_path(path: Path) -> int | None:
     return _count_obj_faces(Path(path))
 
 
-def _mesh_face_warning_update(mesh: Any):
-    return _mesh_face_warning_update_from_face_count(len(getattr(mesh, "faces", [])))
-
-
 class InstructParticulateApp:
     def __init__(
         self,

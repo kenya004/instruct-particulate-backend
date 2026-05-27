@@ -999,32 +999,6 @@ def find_face_groups(faces, face_labels, adjacency=None, verts=None):
     return groups
 
 
-def build_group_adjacency_from_face_adjacency(groups, face_adjacency, filter_link_id=None):
-    """Build a group-level adjacency graph from face-level adjacency."""
-    face_to_group = {}
-    filtered_groups = []
-
-    for group_id, (link_id, face_ids) in enumerate(groups):
-        if filter_link_id is None or link_id == filter_link_id:
-            new_idx = len(filtered_groups)
-            filtered_groups.append((group_id, link_id, face_ids))
-            for face_id in face_ids:
-                face_to_group[face_id] = new_idx
-
-    group_adjacency = defaultdict(set)
-    for group_idx, (_, _, face_ids) in enumerate(filtered_groups):
-        adjacent_groups = set()
-        for face_id in face_ids:
-            for adj_face_id in face_adjacency.get(face_id, set()):
-                if adj_face_id in face_to_group:
-                    adj_group_idx = face_to_group[adj_face_id]
-                    if adj_group_idx != group_idx:
-                        adjacent_groups.add(adj_group_idx)
-        group_adjacency[group_idx] = adjacent_groups
-
-    return group_adjacency, filtered_groups
-
-
 def find_connected_components_fast(n_nodes, adjacency):
     """Find connected components in an undirected sparse graph."""
     row_indices = []

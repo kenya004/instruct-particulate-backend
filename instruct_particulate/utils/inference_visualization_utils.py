@@ -278,11 +278,6 @@ def save_predicted_point_query_rest_visualization(
         links=list(links),
         predicted_link_confidences=predicted_link_confidences,
         out_path=out_path,
-        low_query_points=None,
-        high_query_points=None,
-        low_link_point_prompts=None,
-        high_link_point_prompts=None,
-        axis_segments=None,
         normal_limit=0,
     )
     return out_path

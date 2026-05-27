@@ -1,31 +1,14 @@
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Mapping, Optional
 
 import numpy as np
 
-from instruct_particulate.utils.articulation_utils import (
-    joint_has_prismatic_motion,
-    joint_has_revolute_motion,
-    plucker_to_axis_point,
-)
-from instruct_particulate.utils.visualization_utils import (
-    ARROW_COLOR_PRISMATIC,
-    ARROW_COLOR_REVOLUTE,
-    COLORS,
-)
+from instruct_particulate.utils.visualization_utils import COLORS
 
 LINK_POINT_PROMPT_COLOR = np.array([1.0, 0.0, 0.0], dtype=np.float32)
 OVERPARAM_CONTEXT_QUERY_COLOR = np.full((3,), 0.85, dtype=np.float32)
 VISUALIZATION_VIEW_ELEV_DEG = 20.0
 VISUALIZATION_VIEW_AZIM_DEG = 225.0
-
-
-def _rgb01(color: Sequence[float]) -> np.ndarray:
-    """Converts an RGB color to the `[0, 1]` range."""
-    rgb = np.asarray(color[:3], dtype=np.float32)
-    if np.any(rgb > 1.0):
-        rgb = rgb / 255.0
-    return rgb
 
 
 def _point_colors(link_ids: np.ndarray) -> np.ndarray:
@@ -50,90 +33,6 @@ def _set_equal_axes(ax: Any, cloud: np.ndarray) -> None:
     ax.set_box_aspect((1.0, 1.0, 1.0))
 
 
-def build_axis_segments(
-    points: np.ndarray,
-    point_link_ids: np.ndarray,
-    joints: List[Dict[str, Any]],
-    extension_ratio: float = 0.1,
-    fallback_len_ratio: float = 0.25,
-) -> List[Tuple[np.ndarray, np.ndarray, np.ndarray]]:
-    """Builds line segments for visualizing joint axes.
-
-    Args:
-        points: Point cloud used to determine visualization scale.
-        point_link_ids: Per-point link IDs aligned with `points`.
-        joints: Joint records in the current pose.
-        extension_ratio: Fraction of the child-link projected extent added past
-            each end of the segment.
-        fallback_len_ratio: Fallback segment length as a fraction of cloud span
-            when the child link has no points or negligible extent.
-
-    Returns:
-        List of `(start, end, color)` axis segments.
-    """
-    span = np.ptp(points, axis=0).max() if len(points) else 0.0
-    fallback_half_length = max(span * fallback_len_ratio, 1e-3)
-    min_extension = max(span * 0.02, 1e-3)
-    segments: List[Tuple[np.ndarray, np.ndarray, np.ndarray]] = []
-
-    def add_segment(link_id: int, axis: np.ndarray, axis_color: np.ndarray) -> None:
-        axis = np.asarray(axis, dtype=np.float32)
-        child_points = points[point_link_ids == link_id]
-        if axis.shape[-1] == 6:
-            axis_dir, axis_point = plucker_to_axis_point(axis)
-        elif axis.shape[-1] == 3:
-            axis_dir = axis
-            axis_point = (
-                child_points.mean(axis=0)
-                if len(child_points)
-                else np.zeros((3,), dtype=np.float32)
-            )
-        else:
-            raise ValueError(f"Expected axis to have 3 or 6 values, got shape {axis.shape}")
-        axis_norm = np.linalg.norm(axis_dir)
-        if axis_norm <= 1e-8:
-            return
-        axis_dir = axis_dir / axis_norm
-        if len(child_points) == 0:
-            segment_start = axis_point - fallback_half_length * axis_dir
-            segment_end = axis_point + fallback_half_length * axis_dir
-        else:
-            projections = np.dot(child_points - axis_point, axis_dir)
-            proj_min = float(projections.min())
-            proj_max = float(projections.max())
-            proj_extent = proj_max - proj_min
-            if proj_extent <= 1e-8:
-                center_projection = float(projections.mean())
-                extension = min_extension
-                segment_start = axis_point + (center_projection - extension) * axis_dir
-                segment_end = axis_point + (center_projection + extension) * axis_dir
-            else:
-                extension = max(proj_extent * extension_ratio, min_extension)
-                segment_start = axis_point + (proj_min - extension) * axis_dir
-                segment_end = axis_point + (proj_max + extension) * axis_dir
-        segments.append((segment_start, segment_end, axis_color))
-
-    for joint in sorted(joints, key=lambda item: int(item["joint_id"])):
-        if not joint_has_revolute_motion(joint) and not joint_has_prismatic_motion(joint):
-            continue
-
-        link_id = int(joint["child_link_id"])
-        if joint_has_revolute_motion(joint):
-            add_segment(
-                link_id,
-                np.asarray(joint["revolute_axis"], dtype=np.float32),
-                _rgb01(ARROW_COLOR_REVOLUTE),
-            )
-        if joint_has_prismatic_motion(joint):
-            add_segment(
-                link_id,
-                np.asarray(joint["prismatic_axis"], dtype=np.float32),
-                _rgb01(ARROW_COLOR_PRISMATIC),
-            )
-
-    return segments
-
-
 def plot_query_visualization(
     *,
     query_points: np.ndarray,
@@ -144,14 +43,9 @@ def plot_query_visualization(
     links: List[Dict[str, Any]],
     out_path: Path,
     predicted_link_confidences: Optional[Mapping[int, float]] = None,
-    low_query_points: Optional[np.ndarray] = None,
-    high_query_points: Optional[np.ndarray] = None,
-    low_link_point_prompts: Optional[np.ndarray] = None,
-    high_link_point_prompts: Optional[np.ndarray] = None,
-    axis_segments: Optional[List[Tuple[np.ndarray, np.ndarray, np.ndarray]]] = None,
     normal_limit: int = 500,
 ) -> None:
-    """Plots query points and optional articulated low/high positions.
+    """Plots query points and optional link point prompts.
 
     Args:
         query_points: Query points in the current frame.
@@ -162,11 +56,6 @@ def plot_query_visualization(
         links: Link metadata used for the legend.
         predicted_link_confidences: Optional per-link prediction confidences for the legend.
         out_path: Output image path.
-        low_query_points: Optional low-limit articulated query points.
-        high_query_points: Optional high-limit articulated query points.
-        low_link_point_prompts: Optional low-limit articulated prompt points.
-        high_link_point_prompts: Optional high-limit articulated prompt points.
-        axis_segments: Optional axis line segments for the original panel.
         normal_limit: Maximum number of query normals to render as arrows.
     """
     import matplotlib
@@ -177,38 +66,14 @@ def plot_query_visualization(
 
     point_colors = _point_colors(query_link_ids)
     palette = np.asarray(COLORS, dtype=np.float32) / 255.0
-    all_clouds = [query_points, link_point_prompts]
-    titles = ["Query points"]
-
-    if low_query_points is not None and high_query_points is not None:
-        all_clouds.extend([low_query_points, high_query_points])
-        if low_link_point_prompts is not None:
-            all_clouds.append(low_link_point_prompts)
-        if high_link_point_prompts is not None:
-            all_clouds.append(high_link_point_prompts)
-        titles.extend(["Low-limit pose", "High-limit pose"])
-
-    bounds_cloud = np.concatenate(all_clouds, axis=0)
-    num_panels = len(titles)
-    fig = plt.figure(figsize=(6 * num_panels, 6))
-
-    plot_specs = [
-        ("Query points", query_points, link_point_prompts, True, True),
-    ]
-    if low_query_points is not None and high_query_points is not None:
-        plot_specs.extend(
-            [
-                ("Low-limit pose", low_query_points, low_link_point_prompts, False, False),
-                ("High-limit pose", high_query_points, high_link_point_prompts, False, False),
-            ]
-        )
+    bounds_cloud = np.concatenate([query_points, link_point_prompts], axis=0)
+    fig = plt.figure(figsize=(6, 6))
 
     def render_panel(
         ax: Any,
         title: str,
         cloud: np.ndarray,
         prompt_cloud: Optional[np.ndarray],
-        draw_axes: bool,
         draw_normals: bool,
     ) -> None:
         ax.scatter(
@@ -252,17 +117,6 @@ def plot_query_visualization(
                 depthshade=False,
                 zorder=3,
             )
-        if draw_axes and axis_segments is not None:
-            for start_point, end_point, axis_color in axis_segments:
-                ax.plot(
-                    [start_point[0], end_point[0]],
-                    [start_point[1], end_point[1]],
-                    [start_point[2], end_point[2]],
-                    color=axis_color,
-                    lw=1.5,
-                    alpha=0.9,
-                    zorder=2,
-                )
         _set_equal_axes(ax, bounds_cloud)
         ax.view_init(
             elev=VISUALIZATION_VIEW_ELEV_DEG,
@@ -273,22 +127,15 @@ def plot_query_visualization(
         ax.set_ylabel("Y")
         ax.set_zlabel("Z")
 
-    for panel_idx, plot_spec in enumerate(plot_specs, start=1):
-        render_panel(
-            fig.add_subplot(1, num_panels, panel_idx, projection="3d", computed_zorder=False),
-            *plot_spec,
-        )
-
-    has_any_prompt_points = any(
-        prompt_cloud is not None and len(prompt_cloud) > 0
-        for prompt_cloud in (
-            link_point_prompts,
-            low_link_point_prompts,
-            high_link_point_prompts,
-        )
+    render_panel(
+        fig.add_subplot(1, 1, 1, projection="3d", computed_zorder=False),
+        "Query points",
+        query_points,
+        link_point_prompts,
+        True,
     )
     legend_handles = []
-    if has_any_prompt_points:
+    if link_point_prompts is not None and len(link_point_prompts):
         legend_handles.append(
             Line2D(
                 [0],
@@ -601,4 +448,3 @@ def plot_joint_overparam_visualizations(
     plt.tight_layout(rect=(0.0, 0.08, 1.0, 1.0))
     plt.savefig(out_path, dpi=250, bbox_inches="tight")
     plt.close(fig)
-

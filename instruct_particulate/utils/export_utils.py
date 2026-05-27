@@ -46,6 +46,16 @@ def _resolve_link_names(unique_part_ids, link_names=None):
     )
 
 
+def _mesh_has_embedded_visual_material(mesh) -> bool:
+    visual = getattr(mesh, "visual", None)
+    if visual is None:
+        return False
+    if getattr(visual, "kind", None) in {"texture", "vertex", "face"}:
+        return True
+    material = getattr(visual, "material", None)
+    return material is not None
+
+
 def export_animated_glb_file(
     mesh_parts,
     unique_part_ids,
@@ -663,13 +673,19 @@ def export_urdf(
         mesh = mesh_parts[i]
         origin = link_origins_world[pid]
         
-        # Save mesh (centered at local origin)
+        # Save mesh (centered at local origin). Visual geometry uses GLB so
+        # embedded textures/materials survive in the URDF package; collision
+        # geometry remains OBJ for broad simulator compatibility.
         mesh_local = mesh.copy()
         mesh_local.vertices -= origin
         
-        mesh_filename = f"part_{pid}.obj"
-        mesh_path = os.path.join(mesh_dir, mesh_filename)
-        mesh_local.export(mesh_path)
+        visual_mesh_filename = f"part_{pid}.glb"
+        visual_mesh_path = os.path.join(mesh_dir, visual_mesh_filename)
+        mesh_local.export(visual_mesh_path)
+
+        collision_mesh_filename = f"part_{pid}_collision.obj"
+        collision_mesh_path = os.path.join(mesh_dir, collision_mesh_filename)
+        mesh_local.export(collision_mesh_path)
         
         link_name = resolved_link_names[int(pid)]
         
@@ -677,16 +693,17 @@ def export_urdf(
         urdf_lines.append('    <visual>')
         urdf_lines.append('      <origin xyz="0 0 0" rpy="0 0 0"/>')
         urdf_lines.append('      <geometry>')
-        urdf_lines.append(f'        <mesh filename="./meshes/{mesh_filename}"/>')
+        urdf_lines.append(f'        <mesh filename="./meshes/{visual_mesh_filename}"/>')
         urdf_lines.append('      </geometry>')
-        urdf_lines.append(f'      <material name="material_{pid}">')
-        urdf_lines.append('        <color rgba="0.8 0.8 0.8 1.0"/>')
-        urdf_lines.append('      </material>')
+        if not _mesh_has_embedded_visual_material(mesh_local):
+            urdf_lines.append(f'      <material name="material_{pid}">')
+            urdf_lines.append('        <color rgba="0.8 0.8 0.8 1.0"/>')
+            urdf_lines.append('      </material>')
         urdf_lines.append('    </visual>')
         urdf_lines.append('    <collision>')
         urdf_lines.append('      <origin xyz="0 0 0" rpy="0 0 0"/>')
         urdf_lines.append('      <geometry>')
-        urdf_lines.append(f'        <mesh filename="./meshes/{mesh_filename}"/>')
+        urdf_lines.append(f'        <mesh filename="./meshes/{collision_mesh_filename}"/>')
         urdf_lines.append('      </geometry>')
         urdf_lines.append('    </collision>')
         urdf_lines.append('    <inertial>')

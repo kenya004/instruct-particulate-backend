@@ -4489,7 +4489,27 @@ class InstructParticulateApp:
                     "URDF export payload has mismatched face and part-label counts: "
                     f"{faces.shape[0]} faces vs {face_part_ids.shape[0]} labels."
                 )
-            mesh = trimesh.Trimesh(vertices=vertices, faces=faces, process=False)
+            source_mesh_path = output_dir / str(
+                metadata.get("source_mesh_path", "urdf_source_mesh.glb")
+            )
+            if source_mesh_path.exists():
+                mesh = trimesh.load(
+                    source_mesh_path,
+                    process=False,
+                    maintain_order=True,
+                    force="mesh",
+                )
+                if not isinstance(mesh, trimesh.Trimesh):
+                    raise TypeError(
+                        f"Expected a mesh from {source_mesh_path}, got {type(mesh).__name__}."
+                    )
+                if int(np.asarray(mesh.faces).shape[0]) != int(face_part_ids.shape[0]):
+                    raise ValueError(
+                        "Stored textured mesh face count does not match the URDF payload: "
+                        f"{np.asarray(mesh.faces).shape[0]} faces vs {face_part_ids.shape[0]} labels."
+                    )
+            else:
+                mesh = trimesh.Trimesh(vertices=vertices, faces=faces, process=False)
             unique_part_ids = np.unique(face_part_ids).astype(np.int32, copy=False)
             mesh_parts_original = [
                 mesh.submesh([face_part_ids == part_id], append=True)
@@ -4540,6 +4560,8 @@ class InstructParticulateApp:
         urdf_name: str,
         link_names: list[str],
     ) -> None:
+        source_mesh_filename = "urdf_source_mesh.glb"
+        mesh.export(output_dir / source_mesh_filename)
         np.savez_compressed(
             output_dir / "urdf_export_payload.npz",
             vertices=np.asarray(mesh.vertices, dtype=np.float32),
@@ -4558,6 +4580,7 @@ class InstructParticulateApp:
                 {
                     "urdf_name": str(urdf_name),
                     "link_names": [str(name) for name in link_names],
+                    "source_mesh_path": source_mesh_filename,
                 },
                 indent=2,
             )

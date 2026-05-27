@@ -4768,7 +4768,7 @@ def run_predict_on_gpu(
     enforce_connectivity_per_part: bool,
     joint_decoding_confidence_temperature: float,
 ):
-    yield from _get_active_app().predict_segmentation_payload(
+    for payload, status, export_button in _get_active_app().predict_segmentation_payload(
         mesh_path_value,
         mesh_hash_value,
         kinematic_tree_json,
@@ -4781,16 +4781,41 @@ def run_predict_on_gpu(
         strict_face_postprocess,
         enforce_connectivity_per_part,
         joint_decoding_confidence_temperature,
-    )
+    ):
+        yield (
+            payload,
+            status,
+            export_button,
+            gr.update(),
+            gr.update(),
+            gr.update(),
+        )
 
 
 def postprocess_segmentation_on_cpu(payload: dict[str, Any] | None):
-    return _get_active_app().postprocess_segmentation_payload(payload)
+    next_payload, query_visualization, status, export_button = (
+        _get_active_app().postprocess_segmentation_payload(payload)
+    )
+    return (
+        next_payload,
+        query_visualization,
+        status,
+        export_button,
+        gr.update(),
+        gr.update(),
+    )
 
 
 @_spaces_gpu
 def run_motion_on_gpu(payload: dict[str, Any] | None):
-    yield from _get_active_app().predict_motion_payload(payload)
+    for next_payload, status, export_button in _get_active_app().predict_motion_payload(payload):
+        yield (
+            next_payload,
+            status,
+            export_button,
+            gr.update(),
+            gr.update(),
+        )
 
 
 def finish_predict_on_cpu(payload: dict[str, Any] | None):
@@ -4804,6 +4829,9 @@ def prepare_inference_ui():
         gr.update(interactive=False),
         gr.update(value=None, interactive=False),
         "Running inference...",
+        gr.update(value=None),
+        gr.update(value=None),
+        gr.update(value=None),
     )
 
 
@@ -5139,6 +5167,9 @@ def create_gradio_app(app: InstructParticulateApp) -> gr.Blocks:
                 export_urdf_button,
                 urdf_zip,
                 status,
+                query_visualization,
+                animated_model,
+                prediction_model,
             ],
             queue=False,
         )
@@ -5162,6 +5193,9 @@ def create_gradio_app(app: InstructParticulateApp) -> gr.Blocks:
                 inference_payload,
                 status,
                 export_urdf_button,
+                query_visualization,
+                animated_model,
+                prediction_model,
             ],
         )
         postprocess_event = gpu_event.then(
@@ -5172,6 +5206,8 @@ def create_gradio_app(app: InstructParticulateApp) -> gr.Blocks:
                 query_visualization,
                 status,
                 export_urdf_button,
+                animated_model,
+                prediction_model,
             ],
         )
         motion_event = postprocess_event.then(
@@ -5181,6 +5217,8 @@ def create_gradio_app(app: InstructParticulateApp) -> gr.Blocks:
                 inference_payload,
                 status,
                 export_urdf_button,
+                animated_model,
+                prediction_model,
             ],
         )
         motion_event.then(

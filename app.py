@@ -162,6 +162,49 @@ DEMO_CSS = """
     --demo-warning-text: #fde68a;
   }
 }
+.demo-intro {
+  max-width: 1120px;
+  margin: 0 0 18px;
+  color: var(--demo-text) !important;
+}
+.demo-intro h1 {
+  margin: 0 0 12px;
+  color: var(--demo-text) !important;
+}
+.demo-instructions {
+  color: var(--demo-text) !important;
+}
+.demo-instructions h3 {
+  margin: 0 0 8px;
+  color: var(--demo-text) !important;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 20.8px;
+}
+.demo-instructions p,
+.demo-instructions li {
+  color: var(--demo-text) !important;
+  font-size: 16px;
+  line-height: 24px;
+}
+.demo-instructions p {
+  margin: 0 0 10px;
+}
+.demo-instructions ol {
+  margin: 0 0 10px 22px;
+  padding: 0;
+}
+.demo-instructions li {
+  margin: 0 0 4px;
+}
+.demo-instructions strong {
+  color: var(--demo-text) !important;
+  font-weight: 600;
+}
+.demo-instructions .demo-note {
+  color: var(--demo-muted) !important;
+  line-height: 26px;
+}
 .demo-row {
   align-items: stretch !important;
   gap: 12px !important;
@@ -4803,8 +4846,22 @@ def create_gradio_app(app: InstructParticulateApp) -> gr.Blocks:
             {DEMO_CSS}
             {KINEMATIC_TREE_EDITOR_CSS}
             </style>
-            <h1>Instruct Particulate</h1>
-            <p>Upload one object mesh and provide a kinematic tree. The demo predicts part segmentation and joint parameters, then exports animated GLB and URDF assets.</p>
+            <div class="demo-intro">
+              <h1>Instruct-Particulate</h1>
+              <div class="demo-instructions">
+                <p>Upload one object mesh and provide or extract a kinematic tree. The demo predicts part segmentation and joint parameters, then exports animated GLB and URDF assets.</p>
+                <h3>How to use the demo:</h3>
+                <ol>
+                  <li><strong>Upload a mesh:</strong> use the Input Mesh panel or select an example. For reliable runs, use a simplified mesh with fewer than 100,000 faces.</li>
+                  <li><strong>Choose the upright orientation:</strong> click the preview where the object is upright. This orientation is used for both auto-kinematic extraction and inference.</li>
+                  <li><strong>Define the kinematic tree:</strong> edit links and joints manually, or click Extract Kinematic Structure to infer a starting tree and point prompts.</li>
+                  <li><strong>Add optional point prompts:</strong> select a link in the Kinematic Tree Editor, then click the mesh in the Point Prompt Picker to mark a representative point for that link.</li>
+                  <li><strong>Run inference:</strong> keep Connected Component Postprocessing on when the mesh has clean connected components, then click Run Inference.</li>
+                  <li><strong>Review and export:</strong> inspect the point query visualization, articulated model, and predicted parts and axes, then export the URDF when the output is ready.</li>
+                </ol>
+                <p class="demo-note">Large meshes are rejected before rendering or point-prompt setup so the Space remains responsive.</p>
+              </div>
+            </div>
             """
         )
         mesh_face_warning = gr.HTML(

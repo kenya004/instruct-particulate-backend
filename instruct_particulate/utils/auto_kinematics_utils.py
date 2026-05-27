@@ -248,7 +248,7 @@ def render_mesh_auto_kinematics_views(
             *[repr(float(azimuth_deg)) for azimuth_deg in azimuths],
         ]
         if up_dir is not None and str(up_dir).strip():
-            command.extend(["--up-dir", str(up_dir)])
+            command.append(f"--up-dir={str(up_dir).strip()}")
         print(
             f"Rendering {len(azimuths)} auto-kinematics views with Blender at {blender_path}"
         )

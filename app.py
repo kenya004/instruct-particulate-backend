@@ -548,10 +548,12 @@ DEMO_CSS = """
 }
 .upright-picker-row {
   flex: 0 0 auto !important;
+  display: grid !important;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
   height: auto !important;
   min-height: 0 !important;
   gap: 8px !important;
-  align-items: stretch !important;
+  align-items: start !important;
   flex-wrap: nowrap !important;
 }
 .orientation-panel .upright-picker-grid {
@@ -562,15 +564,25 @@ DEMO_CSS = """
 }
 .upright-picker-row > .form,
 .upright-picker-row > div {
-  flex: 1 1 0 !important;
+  box-sizing: border-box !important;
+  flex: none !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  height: auto !important;
+  aspect-ratio: 1 / 1 !important;
   min-width: 0 !important;
   min-height: 0 !important;
 }
 .upright-option-image {
+  box-sizing: border-box !important;
   position: relative !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
   min-height: 0 !important;
-  height: auto !important;
-  aspect-ratio: 1 / 1 !important;
+  height: 0 !important;
+  padding: 0 0 calc(100% - 2px) 0 !important;
+  aspect-ratio: auto !important;
   border: 1px solid var(--demo-border) !important;
   border-radius: 6px !important;
   background: var(--demo-panel-bg) !important;
@@ -587,8 +599,9 @@ DEMO_CSS = """
 }
 .upright-option-image.selected {
   border-color: var(--demo-selected) !important;
-  border-width: 3px !important;
+  border-width: 1px !important;
   box-shadow:
+    inset 0 0 0 2px var(--demo-selected),
     0 0 0 4px var(--demo-selected-ring),
     0 10px 24px rgba(15, 23, 42, 0.24) !important;
   opacity: 1 !important;
@@ -598,8 +611,13 @@ DEMO_CSS = """
 .upright-option-image .image-container,
 .upright-option-image .image-frame,
 .upright-option-image button {
+  box-sizing: border-box !important;
+  position: absolute !important;
+  inset: 0 !important;
   width: 100% !important;
   height: 100% !important;
+  max-width: 100% !important;
+  max-height: 100% !important;
   aspect-ratio: 1 / 1 !important;
   min-height: 0 !important;
   padding: 0 !important;
@@ -611,7 +629,10 @@ DEMO_CSS = """
   justify-content: center !important;
 }
 .upright-option-image .empty {
+  position: absolute !important;
+  inset: 0 !important;
   height: 100% !important;
+  width: 100% !important;
   min-height: 0 !important;
   margin: 0 !important;
 }
@@ -864,10 +885,13 @@ DEMO_CSS = """
   }
   .upright-picker-row {
     flex-wrap: nowrap !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
   }
   .upright-picker-row > .form,
   .upright-picker-row > div {
-    flex: 1 1 0 !important;
+    flex: none !important;
+    width: 100% !important;
+    aspect-ratio: 1 / 1 !important;
     min-width: 0 !important;
   }
   .output-triplet-row {
@@ -888,7 +912,9 @@ DEMO_CSS = """
   }
   .upright-picker-row > .form,
   .upright-picker-row > div {
-    flex: 1 1 0 !important;
+    flex: none !important;
+    width: 100% !important;
+    aspect-ratio: 1 / 1 !important;
     min-width: 0 !important;
   }
   .upright-option-image::after {

@@ -109,7 +109,7 @@ AUTO_KINEMATICS_REASONING_EFFORT = "medium"
 AUTO_KINEMATICS_CACHE_VERSION = 3
 INFERENCE_NO_POINT_PROMPT = True
 INFERENCE_EXPORT_URDF_DURING_WRITE = False
-HIGH_FACE_COUNT_WARNING_THRESHOLD = 500_000
+HIGH_FACE_COUNT_WARNING_THRESHOLD = 100_000
 
 DEFAULT_KINEMATIC_TREE = {
     "links": [
@@ -3699,10 +3699,11 @@ def _mesh_face_warning_update_from_face_count(face_count: int):
             'font-size:14px!important;line-height:1.35!important;">'
             '<strong style="color:var(--demo-warning-text,#78350f)!important;">'
             f"Large mesh warning:</strong> this mesh has {face_count:,} faces. "
-            "That is too dense for this Space and can exhaust CPU resources. "
-            "Please upload a simplified mesh with fewer than "
-            f"{HIGH_FACE_COUNT_WARNING_THRESHOLD:,} faces; this upload will not be "
-            "rendered or sent to the point prompt picker.</div>"
+            "Meshes above "
+            f"{HIGH_FACE_COUNT_WARNING_THRESHOLD:,} faces may exhaust this Space's "
+            "CPU resources during rendering or post-processing. The app will "
+            "continue, but a simplified mesh is recommended if the run becomes "
+            "slow or fails.</div>"
         ),
         visible=True,
     )
@@ -3844,24 +3845,6 @@ class InstructParticulateApp:
             )
             return
         early_face_count = _obj_face_count_from_path(mesh_path)
-        if (
-            early_face_count is not None
-            and early_face_count > HIGH_FACE_COUNT_WARNING_THRESHOLD
-        ):
-            yield (
-                None,
-                None,
-                _mesh_face_warning_update_from_face_count(early_face_count),
-                default_tree_json,
-                default_point_prompt_json,
-                "",
-                *empty_orientation_previews,
-                "",
-                None,
-                gr.update(interactive=False),
-                gr.update(value=None, interactive=False),
-            )
-            return
         try:
             mesh_hash = _mesh_file_sha256(mesh_path)
             mesh = load_trimesh(mesh_path)
@@ -3881,24 +3864,9 @@ class InstructParticulateApp:
             )
             return
 
-        face_count = len(getattr(mesh, "faces", []))
-        if face_count > HIGH_FACE_COUNT_WARNING_THRESHOLD:
-            yield (
-                None,
-                None,
-                _mesh_face_warning_update_from_face_count(face_count),
-                default_tree_json,
-                default_point_prompt_json,
-                "",
-                *empty_orientation_previews,
-                "",
-                None,
-                gr.update(interactive=False),
-                gr.update(value=None, interactive=False),
-            )
-            return
-
-        mesh_face_warning = _mesh_face_warning_update_from_face_count(face_count)
+        face_count = int(len(getattr(mesh, "faces", [])))
+        warning_face_count = max(face_count, int(early_face_count or 0))
+        mesh_face_warning = _mesh_face_warning_update_from_face_count(warning_face_count)
         cached_upright_previews = _cached_upright_preview_items(mesh_hash)
         rendering_orientation_previews = (
             _upright_preview_paths(cached_upright_previews)
@@ -5054,7 +5022,7 @@ def create_gradio_app(app: InstructParticulateApp) -> gr.Blocks:
                 <p>Upload one object mesh and provide or extract a kinematic tree. The demo predicts part segmentation and joint parameters, then exports animated GLB and URDF assets.</p>
                 <h3>How to use the demo:</h3>
                 <ol>
-                  <li><strong>Upload a mesh:</strong> use the Input Mesh panel or select an example. For reliable runs, use a simplified mesh with fewer than 500,000 faces.</li>
+                  <li><strong>Upload a mesh:</strong> use the Input Mesh panel or select an example. For reliable runs, use a simplified mesh with fewer than 100,000 faces.</li>
                   <li><strong>Choose the upright orientation:</strong> click the preview where the object is upright. This orientation is used for both auto-kinematic extraction and inference.</li>
                   <li><strong>Define the kinematic tree:</strong> edit links and joints manually, or click Extract Kinematic Structure to infer a starting tree and point prompts.</li>
                   <li><strong>Add optional point prompts:</strong> select a link in the Kinematic Tree Editor, then click the mesh in the Point Prompt Picker to mark a representative point for that link.</li>

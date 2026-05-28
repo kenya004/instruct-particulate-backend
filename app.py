@@ -4957,7 +4957,7 @@ def _example_mesh_grid_html(examples: list[dict[str, str]]) -> str:
     for index, example in enumerate(examples):
         preview_path = Path(example["preview_path"]).resolve()
         label = html.escape(example["label"])
-        src = html.escape(f"/file={preview_path}")
+        src = html.escape(f"/gradio_api/file={preview_path}")
         buttons.append(
             f"""
             <button class="example-preview-button" type="button" data-example-index="{index}">

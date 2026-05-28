@@ -379,11 +379,13 @@ DEMO_CSS = """
   background: transparent !important;
 }
 .mesh-examples {
-  flex: 0 0 auto;
+  flex: 0 0 auto !important;
+  height: auto !important;
   overflow: visible;
+  gap: 8px !important;
   border: 1px solid var(--demo-border);
   border-radius: 6px;
-  padding: 8px 8px 0;
+  padding: 8px 8px 0 !important;
   background: var(--demo-panel-bg);
   color: var(--demo-text) !important;
 }
@@ -394,17 +396,19 @@ DEMO_CSS = """
   margin-bottom: 0;
 }
 .example-preview-button {
-  display: block;
-  min-width: 0;
-  aspect-ratio: 1 / 1;
-  padding: 0;
-  border: 1px solid var(--demo-border);
-  border-radius: 6px;
-  background: var(--demo-panel-bg);
-  color: var(--demo-text);
+  display: block !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  aspect-ratio: 1 / 1 !important;
+  padding: 0 !important;
+  border: 1px solid var(--demo-border) !important;
+  border-radius: 6px !important;
+  background: var(--demo-panel-bg) !important;
+  color: var(--demo-text) !important;
   cursor: pointer;
-  line-height: 0;
-  overflow: hidden;
+  line-height: 0 !important;
+  overflow: hidden !important;
+  box-sizing: border-box !important;
 }
 .example-preview-button:hover,
 .example-preview-button:focus-visible {
@@ -412,10 +416,10 @@ DEMO_CSS = """
   outline: none;
 }
 .example-preview-button img {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
+  display: block !important;
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
 }
 .kin-panel {
   display: flex;

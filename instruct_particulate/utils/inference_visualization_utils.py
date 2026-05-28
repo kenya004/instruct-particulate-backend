@@ -165,7 +165,8 @@ def save_segmented_visualizations(
         for part_id in unique_part_ids
     ]
     mesh_parts_segmented = create_textured_mesh_parts(
-        [mesh_part.copy() for mesh_part in mesh_parts_original]
+        [mesh_part.copy() for mesh_part in mesh_parts_original],
+        part_ids=unique_part_ids,
     )
     axes = create_motion_axis_meshes(
         mesh_parts_original,

@@ -6,29 +6,48 @@ from PIL import Image
 
 from instruct_particulate.utils.articulation_utils import plucker_to_axis_point
 
-COLORS = [
-    (72, 36, 117),
-    (33, 145, 140),
-    (189, 223, 38),
-    (153, 80, 8),
-    (12, 12, 242),
-    (242, 12, 150),
-    (12, 242, 150),
-    (12, 150, 242)
-]
-ARROW_COLOR_REVOLUTE = (255, 0, 0)
-ARROW_COLOR_PRISMATIC = (255, 255, 0)
+LINK_COLOR_HEX = (
+    "#fca5a5",
+    "#fdba74",
+    "#fde047",
+    "#86efac",
+    "#67e8f9",
+    "#93c5fd",
+    "#c4b5fd",
+    "#f0abfc",
+    "#f9a8d4",
+    "#a7f3d0",
+    "#fcd34d",
+    "#bfdbfe",
+    "#ddd6fe",
+    "#fecaca",
+    "#bbf7d0",
+    "#bae6fd",
+)
 
 
-def create_textured_mesh_parts(mesh_parts, colors=COLORS, tex_res=256):
+def _hex_to_rgb(color: str) -> tuple[int, int, int]:
+    color = color.removeprefix("#")
+    return tuple(int(color[index : index + 2], 16) for index in range(0, 6, 2))
+
+
+COLORS = tuple(_hex_to_rgb(color) for color in LINK_COLOR_HEX)
+
+
+def create_textured_mesh_parts(mesh_parts, part_ids=None, colors=COLORS, tex_res=256):
     # Create a texture map with evenly distributed color blocks
     # Use a horizontal strip layout: texture height = tex_res, width = num_parts * tex_res
+    part_ids = list(range(len(mesh_parts))) if part_ids is None else list(part_ids)
+    if len(part_ids) != len(mesh_parts):
+        raise ValueError(
+            f"part_ids must align with mesh_parts, got {len(part_ids)} ids for {len(mesh_parts)} meshes"
+        )
     texture_height = block_width = tex_res
     texture_width = len(mesh_parts) * block_width
     texture_array = np.zeros((texture_height, texture_width, 3), dtype=np.uint8)
 
-    for i in range(len(mesh_parts)):
-        color_rgb = colors[i % len(colors)][:3]
+    for i, part_id in enumerate(part_ids):
+        color_rgb = colors[int(part_id) % len(colors)][:3]
         x_start = i * block_width
         x_end = (i + 1) * block_width
         texture_array[:, x_start:x_end] = color_rgb
@@ -255,10 +274,12 @@ def create_motion_axis_meshes(
     is_part_prismatic: np.ndarray,
     revolute_plucker: np.ndarray,
     prismatic_axis: np.ndarray,
+    colors=COLORS,
 ):
     """Create arrow/ring meshes visualizing predicted joint motion."""
     axes = []
     for mesh_part, part_id in zip(mesh_parts, unique_part_ids, strict=True):
+        axis_color = colors[int(part_id) % len(colors)][:3]
         if is_part_revolute[part_id]:
             axis_direction, axis_point = plucker_to_axis_point(revolute_plucker[part_id])
             arrow_start, arrow_end = get_3D_arrow_on_points(
@@ -271,7 +292,7 @@ def create_motion_axis_meshes(
                 create_arrow(
                     arrow_start,
                     arrow_end,
-                    color=ARROW_COLOR_REVOLUTE,
+                    color=axis_color,
                     radius=0.01,
                     radius_tip=0.018,
                 )
@@ -283,7 +304,7 @@ def create_motion_axis_meshes(
                     arrow_direction,
                     major_radius=0.03,
                     minor_radius=0.006,
-                    color=ARROW_COLOR_REVOLUTE,
+                    color=axis_color,
                 )
             )
             axes.append(
@@ -292,7 +313,7 @@ def create_motion_axis_meshes(
                     arrow_direction,
                     major_radius=0.03,
                     minor_radius=0.006,
-                    color=ARROW_COLOR_REVOLUTE,
+                    color=axis_color,
                 )
             )
         elif is_part_prismatic[part_id]:
@@ -305,7 +326,7 @@ def create_motion_axis_meshes(
                 create_arrow(
                     arrow_start,
                     arrow_end,
-                    color=ARROW_COLOR_PRISMATIC,
+                    color=axis_color,
                     radius=0.01,
                     radius_tip=0.018,
                 )

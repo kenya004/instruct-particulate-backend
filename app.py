@@ -86,6 +86,7 @@ from instruct_particulate.utils.inference_visualization_utils import (
 from instruct_particulate.utils.partfield_feature_utils import (
     ensure_partfield_assets_downloaded,
 )
+from instruct_particulate.utils.visualization_utils import LINK_COLOR_HEX
 
 
 REPO_ROOT = Path(__file__).resolve().parent
@@ -1554,14 +1555,12 @@ UPRIGHT_PICKER_JS = r"""
 }
 """
 
-KINEMATIC_TREE_EDITOR_JS = r"""
+KINEMATIC_TREE_EDITOR_JS = (
+    """
 () => {
-  const palette = [
-    "#fca5a5", "#fdba74", "#fde047", "#86efac",
-    "#67e8f9", "#93c5fd", "#c4b5fd", "#f0abfc",
-    "#f9a8d4", "#a7f3d0", "#fcd34d", "#bfdbfe",
-    "#ddd6fe", "#fecaca", "#bbf7d0", "#bae6fd"
-  ];
+  const palette = """
+    + json.dumps(list(LINK_COLOR_HEX))
+    + r""";
   const NODE_WIDTH = 128;
   const NODE_HEIGHT = 44;
   const PROMPT_POINT_PRECISION = 6;
@@ -2772,6 +2771,7 @@ KINEMATIC_TREE_EDITOR_JS = r"""
   waitForEditor();
 }
 """
+)
 
 
 def _extract_gradio_path(value: Any) -> Path | None:
@@ -4870,13 +4870,13 @@ def _kinematic_tree_editor_html() -> str:
         <svg id="kin-tree-edges" class="kin-tree-edge-layer"></svg>
         <div id="kin-tree-joints" class="kin-tree-joint-layer"></div>
         <div id="kin-tree-nodes" class="kin-tree-node-layer">
-          <div class="kin-node" style="left: 28px; top: 42px; background: #fca5a5;">
+          <div class="kin-node" style="left: 28px; top: 42px; background: {LINK_COLOR_HEX[0]};">
             <div class="kin-node-row">
               <input value="base" aria-label="Link name" />
               <button class="kin-node-delete" title="Delete link" type="button">×</button>
             </div>
           </div>
-          <div class="kin-node" style="left: 220px; top: 180px; background: #fdba74;">
+          <div class="kin-node" style="left: 220px; top: 180px; background: {LINK_COLOR_HEX[1]};">
             <div class="kin-node-row">
               <input value="moving_part" aria-label="Link name" />
               <button class="kin-node-delete" title="Delete link" type="button">×</button>

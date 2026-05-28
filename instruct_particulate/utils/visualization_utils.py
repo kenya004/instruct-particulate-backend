@@ -32,6 +32,8 @@ def _hex_to_rgb(color: str) -> tuple[int, int, int]:
 
 
 COLORS = tuple(_hex_to_rgb(color) for color in LINK_COLOR_HEX)
+ARROW_COLOR_REVOLUTE = (255, 0, 0)
+ARROW_COLOR_PRISMATIC = (255, 255, 0)
 
 
 def create_textured_mesh_parts(mesh_parts, part_ids=None, colors=COLORS, tex_res=256):
@@ -274,12 +276,10 @@ def create_motion_axis_meshes(
     is_part_prismatic: np.ndarray,
     revolute_plucker: np.ndarray,
     prismatic_axis: np.ndarray,
-    colors=COLORS,
 ):
     """Create arrow/ring meshes visualizing predicted joint motion."""
     axes = []
     for mesh_part, part_id in zip(mesh_parts, unique_part_ids, strict=True):
-        axis_color = colors[int(part_id) % len(colors)][:3]
         if is_part_revolute[part_id]:
             axis_direction, axis_point = plucker_to_axis_point(revolute_plucker[part_id])
             arrow_start, arrow_end = get_3D_arrow_on_points(
@@ -292,7 +292,7 @@ def create_motion_axis_meshes(
                 create_arrow(
                     arrow_start,
                     arrow_end,
-                    color=axis_color,
+                    color=ARROW_COLOR_REVOLUTE,
                     radius=0.01,
                     radius_tip=0.018,
                 )
@@ -304,7 +304,7 @@ def create_motion_axis_meshes(
                     arrow_direction,
                     major_radius=0.03,
                     minor_radius=0.006,
-                    color=axis_color,
+                    color=ARROW_COLOR_REVOLUTE,
                 )
             )
             axes.append(
@@ -313,7 +313,7 @@ def create_motion_axis_meshes(
                     arrow_direction,
                     major_radius=0.03,
                     minor_radius=0.006,
-                    color=axis_color,
+                    color=ARROW_COLOR_REVOLUTE,
                 )
             )
         elif is_part_prismatic[part_id]:
@@ -326,7 +326,7 @@ def create_motion_axis_meshes(
                 create_arrow(
                     arrow_start,
                     arrow_end,
-                    color=axis_color,
+                    color=ARROW_COLOR_PRISMATIC,
                     radius=0.01,
                     radius_tip=0.018,
                 )

@@ -243,7 +243,19 @@ DEMO_CSS = """
   display: none !important;
 }
 #mesh-face-warning,
-.block.mesh-face-warning {
+.block.mesh-face-warning,
+#mesh-face-warning .html-container,
+#mesh-face-warning .prose {
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  min-height: 0 !important;
+}
+.mesh-face-warning-content {
+  display: block !important;
   margin: 8px 0 12px !important;
   padding: 10px 12px !important;
   border: 1px solid var(--demo-warning-border) !important;
@@ -252,21 +264,8 @@ DEMO_CSS = """
   color: var(--demo-warning-text) !important;
   box-shadow: 0 1px 3px var(--demo-control-shadow) !important;
 }
-#mesh-face-warning .html-container,
-#mesh-face-warning .prose,
-#mesh-face-warning .mesh-face-warning:not(.block) {
-  margin: 0 !important;
-  padding: 0 !important;
-  border: 0 !important;
-  border-radius: 0 !important;
-  background: transparent !important;
-  box-shadow: none !important;
-  color: var(--demo-warning-text) !important;
-}
-#mesh-face-warning *,
-#mesh-face-warning p,
-.mesh-face-warning *,
-.mesh-face-warning p {
+.mesh-face-warning-content *,
+.mesh-face-warning-content p {
   margin: 0 !important;
   color: var(--demo-warning-text) !important;
   font-size: 14px !important;
@@ -3690,21 +3689,15 @@ def _spaces_gpu(fn):
 
 def _mesh_face_warning_update_from_face_count(face_count: int):
     if face_count <= HIGH_FACE_COUNT_WARNING_THRESHOLD:
-        return gr.update(value="", visible=False)
-    return gr.update(
-        value=(
-            '<div class="mesh-face-warning-content" '
-            'style="display:block!important;margin:0!important;'
-            'color:var(--demo-warning-text,#78350f)!important;'
-            'font-size:14px!important;line-height:1.35!important;">'
-            '<strong style="color:var(--demo-warning-text,#78350f)!important;">'
-            f"Large mesh warning:</strong> this mesh has {face_count:,} faces. "
-            "That is too dense for this Space and can exhaust CPU resources. "
-            "Please upload a simplified mesh with fewer than "
-            f"{HIGH_FACE_COUNT_WARNING_THRESHOLD:,} faces for the best results; "
-            "this upload will still proceed.</div>"
-        ),
-        visible=True,
+        return ""
+    return (
+        '<div class="mesh-face-warning-content">'
+        "<strong>Large mesh warning:</strong> "
+        f"this mesh has {face_count:,} faces. "
+        "That is too dense for this Space and can exhaust CPU resources. "
+        "Please upload a simplified mesh with fewer than "
+        f"{HIGH_FACE_COUNT_WARNING_THRESHOLD:,} faces for the best results; "
+        "this upload will still proceed.</div>"
     )
 
 
@@ -3826,7 +3819,7 @@ class InstructParticulateApp:
         empty_orientation_previews = [None] * len(UP_DIR_CHOICES)
         default_tree_json = _tree_to_pretty_json(DEFAULT_KINEMATIC_TREE)
         default_point_prompt_json = '{"prompts":[]}'
-        hidden_mesh_face_warning = gr.update(value="", visible=False)
+        hidden_mesh_face_warning = ""
         mesh_path = _extract_gradio_path(mesh_value)
         if mesh_path is None:
             yield (
@@ -5021,7 +5014,7 @@ def create_gradio_app(app: InstructParticulateApp) -> gr.Blocks:
                 <p>Upload one object mesh and provide or extract a kinematic tree. The demo predicts part segmentation and joint parameters, then exports animated GLB and URDF assets.</p>
                 <h3>How to use the demo:</h3>
                 <ol>
-                  <li><strong>Upload a mesh:</strong> use the Input Mesh panel or select an example. You can also generate an object with Hunyuan3D, using the <a href="https://3d.hunyuan.tencent.com/" target="_blank" rel="noopener noreferrer">China site</a> or the <a href="https://3d.hunyuanglobal.com/" target="_blank" rel="noopener noreferrer">international site</a>, then bring the mesh here to make it interactive. For efficient processing, select Hunyuan3D's 50k-point generation option.</li>
+                  <li><strong>Upload a mesh:</strong> use the Input Mesh panel or select an example. You can also generate an object with Hunyuan3D, using the <a href="https://3d.hunyuan.tencent.com/" target="_blank" rel="noopener noreferrer">China site</a> or the <a href="https://3d.hunyuanglobal.com/" target="_blank" rel="noopener noreferrer">international site</a>, then bring the mesh here to make it interactive. For efficient processing, select Hunyuan3D's 50k-face generation option.</li>
                   <li><strong>Choose the upright orientation:</strong> click the preview where the object is upright. This orientation is used for both auto-kinematic extraction and inference.</li>
                   <li><strong>Define the kinematic tree:</strong> edit links and joints manually, or click Extract Kinematic Structure to infer a starting tree and point prompts.</li>
                   <li><strong>Add optional point prompts:</strong> select a link in the Kinematic Tree Editor, then click the mesh in the Point Prompt Picker to mark a representative point for that link.</li>
@@ -5035,7 +5028,7 @@ def create_gradio_app(app: InstructParticulateApp) -> gr.Blocks:
         )
         mesh_face_warning = gr.HTML(
             value="",
-            visible=False,
+            visible=True,
             elem_id="mesh-face-warning",
             elem_classes=["mesh-face-warning"],
             container=False,

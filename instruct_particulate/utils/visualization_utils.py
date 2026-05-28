@@ -232,6 +232,7 @@ def get_3D_arrow_on_points(
     points: np.ndarray,
     fixed_point: Optional[np.ndarray] = None,
     extension: float = 0.05,
+    min_extension: float = 0.1,
 ) -> Tuple[float, float]:
     """
     Build a 3-D arrow (cylinder + cone) that encloses `points` along `direction`.
@@ -257,16 +258,30 @@ def get_3D_arrow_on_points(
     # ── project points onto axis to find extents ──────────────────────────
     scalars = np.dot(points - P0, d_hat)
     if scalars.shape[0] > 0:
-        s_min = scalars.min() - max(extension * (scalars.max() - scalars.min()), 0.1)
-        s_max = scalars.max() + max(extension * (scalars.max() - scalars.min()), 0.1)
+        padding = max(extension * (scalars.max() - scalars.min()), min_extension)
+        s_min = scalars.min() - padding
+        s_max = scalars.max() + padding
     else:
-        s_min = -0.1
-        s_max = 0.1
+        s_min = -min_extension
+        s_max = min_extension
 
     start_pt = P0 + s_min * d_hat
     end_pt   = P0 + s_max * d_hat
 
     return start_pt, end_pt
+
+
+def _mesh_parts_max_extent(mesh_parts) -> float:
+    vertices = [
+        np.asarray(mesh_part.vertices, dtype=np.float64)
+        for mesh_part in mesh_parts
+        if len(mesh_part.vertices) > 0
+    ]
+    if not vertices:
+        return 1.0
+    points = np.concatenate(vertices, axis=0)
+    max_extent = float(np.ptp(points, axis=0).max())
+    return max(max_extent, 1e-6)
 
 
 def create_motion_axis_meshes(
@@ -279,6 +294,13 @@ def create_motion_axis_meshes(
 ):
     """Create arrow/ring meshes visualizing predicted joint motion."""
     axes = []
+    visual_scale = _mesh_parts_max_extent(mesh_parts)
+    arrow_radius = 0.01 * visual_scale
+    arrow_tip_radius = 0.018 * visual_scale
+    ring_major_radius = 0.03 * visual_scale
+    ring_minor_radius = 0.006 * visual_scale
+    min_axis_extension = 0.1 * visual_scale
+
     for mesh_part, part_id in zip(mesh_parts, unique_part_ids, strict=True):
         if is_part_revolute[part_id]:
             axis_direction, axis_point = plucker_to_axis_point(revolute_plucker[part_id])
@@ -287,14 +309,15 @@ def create_motion_axis_meshes(
                 mesh_part.vertices,
                 fixed_point=axis_point,
                 extension=0.2,
+                min_extension=min_axis_extension,
             )
             axes.append(
                 create_arrow(
                     arrow_start,
                     arrow_end,
                     color=ARROW_COLOR_REVOLUTE,
-                    radius=0.01,
-                    radius_tip=0.018,
+                    radius=arrow_radius,
+                    radius_tip=arrow_tip_radius,
                 )
             )
             arrow_direction = arrow_end - arrow_start
@@ -302,8 +325,8 @@ def create_motion_axis_meshes(
                 create_ring(
                     arrow_start,
                     arrow_direction,
-                    major_radius=0.03,
-                    minor_radius=0.006,
+                    major_radius=ring_major_radius,
+                    minor_radius=ring_minor_radius,
                     color=ARROW_COLOR_REVOLUTE,
                 )
             )
@@ -311,8 +334,8 @@ def create_motion_axis_meshes(
                 create_ring(
                     arrow_end,
                     arrow_direction,
-                    major_radius=0.03,
-                    minor_radius=0.006,
+                    major_radius=ring_major_radius,
+                    minor_radius=ring_minor_radius,
                     color=ARROW_COLOR_REVOLUTE,
                 )
             )
@@ -321,14 +344,15 @@ def create_motion_axis_meshes(
                 prismatic_axis[part_id],
                 mesh_part.vertices,
                 extension=0.2,
+                min_extension=min_axis_extension,
             )
             axes.append(
                 create_arrow(
                     arrow_start,
                     arrow_end,
                     color=ARROW_COLOR_PRISMATIC,
-                    radius=0.01,
-                    radius_tip=0.018,
+                    radius=arrow_radius,
+                    radius_tip=arrow_tip_radius,
                 )
             )
     return axes

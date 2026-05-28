@@ -397,9 +397,10 @@ DEMO_CSS = """
 }
 .example-preview-button {
   display: block !important;
+  width: 100% !important;
   min-width: 0 !important;
   min-height: 0 !important;
-  aspect-ratio: 1 / 1 !important;
+  aspect-ratio: auto !important;
   padding: 0 !important;
   border: 1px solid var(--demo-border) !important;
   border-radius: 6px !important;
@@ -418,7 +419,8 @@ DEMO_CSS = """
 .example-preview-button img {
   display: block !important;
   width: 100% !important;
-  height: 100% !important;
+  height: auto !important;
+  aspect-ratio: 1 / 1 !important;
   object-fit: cover !important;
 }
 .kin-panel {

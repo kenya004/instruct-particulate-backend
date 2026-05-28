@@ -3699,11 +3699,10 @@ def _mesh_face_warning_update_from_face_count(face_count: int):
             'font-size:14px!important;line-height:1.35!important;">'
             '<strong style="color:var(--demo-warning-text,#78350f)!important;">'
             f"Large mesh warning:</strong> this mesh has {face_count:,} faces. "
-            "Meshes above "
-            f"{HIGH_FACE_COUNT_WARNING_THRESHOLD:,} faces may exhaust this Space's "
-            "CPU resources during rendering or post-processing. The app will "
-            "continue, but a simplified mesh is recommended if the run becomes "
-            "slow or fails.</div>"
+            "That is too dense for this Space and can exhaust CPU resources. "
+            "Please upload a simplified mesh with fewer than "
+            f"{HIGH_FACE_COUNT_WARNING_THRESHOLD:,} faces for the best results; "
+            "this upload will still proceed.</div>"
         ),
         visible=True,
     )

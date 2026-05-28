@@ -29,6 +29,7 @@ DEFAULT_RENDER_RESOLUTION = 512
 DEFAULT_POINT_PROMPT_SNAP_RADIUS_PX = 24
 DEFAULT_BLENDER_RENDER_ENGINE = "CYCLES"
 DEFAULT_BLENDER_RENDER_SAMPLES = 256
+DEFAULT_RENDER_BACKGROUND_RGB = (192, 192, 192)
 
 
 @dataclass(frozen=True)
@@ -165,6 +166,21 @@ def _encode_image_data(path: Path) -> tuple[bytes, str]:
     return path.read_bytes(), _guess_mime_type(path)
 
 
+def _save_render_with_gray_background(
+    source_path: Path,
+    output_path: Path,
+    *,
+    background_rgb: tuple[int, int, int] = DEFAULT_RENDER_BACKGROUND_RGB,
+) -> None:
+    from PIL import Image
+
+    with Image.open(source_path) as image:
+        rgba_image = image.convert("RGBA")
+        background = Image.new("RGBA", rgba_image.size, (*background_rgb, 255))
+        background.alpha_composite(rgba_image)
+        background.convert("RGB").save(output_path)
+
+
 def resolve_blender_binary(explicit_path: str | os.PathLike[str] | None = None) -> Path:
     if explicit_path is not None:
         candidate = Path(explicit_path).expanduser().resolve()
@@ -286,7 +302,7 @@ def render_mesh_auto_kinematics_views(
 
             image_path = output_dir / temp_image_path.name
             camera_path = output_dir / temp_camera_path.name
-            shutil.copy2(temp_image_path, image_path)
+            _save_render_with_gray_background(temp_image_path, image_path)
             shutil.copy2(temp_camera_path, camera_path)
 
             print(

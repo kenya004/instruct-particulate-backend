@@ -35,3 +35,17 @@ saved_model/**/* filter=lfs diff=lfs merge=lfs -text
 *tfevents* filter=lfs diff=lfs merge=lfs -text
 examples/000.glb filter=lfs diff=lfs merge=lfs -text
 examples/oven_blank.glb filter=lfs diff=lfs merge=lfs -text
+examples/001.glb filter=lfs diff=lfs merge=lfs -text
+examples/002.glb filter=lfs diff=lfs merge=lfs -text
+examples/003.glb filter=lfs diff=lfs merge=lfs -text
+examples/004.glb filter=lfs diff=lfs merge=lfs -text
+examples/005.glb filter=lfs diff=lfs merge=lfs -text
+examples/006.glb filter=lfs diff=lfs merge=lfs -text
+examples/render/000.png filter=lfs diff=lfs merge=lfs -text
+examples/render/001.png filter=lfs diff=lfs merge=lfs -text
+examples/render/002.png filter=lfs diff=lfs merge=lfs -text
+examples/render/003.png filter=lfs diff=lfs merge=lfs -text
+examples/render/004.png filter=lfs diff=lfs merge=lfs -text
+examples/render/005.png filter=lfs diff=lfs merge=lfs -text
+examples/render/006.png filter=lfs diff=lfs merge=lfs -text
+instruct_particulate_1m_warning_e22a80a.png filter=lfs diff=lfs merge=lfs -text

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import html
 import json
 import os
 import shutil
@@ -379,16 +380,49 @@ DEMO_CSS = """
 }
 .mesh-examples {
   flex: 0 0 auto;
-  max-height: 180px;
-  overflow-y: auto;
+  overflow: visible;
   border: 1px solid var(--demo-border);
   border-radius: 6px;
-  padding: 6px;
+  padding: 8px;
   background: var(--demo-panel-bg);
   color: var(--demo-text) !important;
 }
-.mesh-examples table {
-  margin: 0 !important;
+.example-preview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(68px, 1fr));
+  gap: 8px;
+}
+.example-preview-button {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  min-width: 0;
+  padding: 0;
+  border: 1px solid var(--demo-border);
+  border-radius: 6px;
+  background: var(--demo-panel-bg);
+  color: var(--demo-text);
+  cursor: pointer;
+  overflow: hidden;
+}
+.example-preview-button:hover,
+.example-preview-button:focus-visible {
+  border-color: var(--demo-focus);
+  outline: none;
+}
+.example-preview-button img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+}
+.example-preview-button span {
+  padding: 0 6px 6px;
+  color: var(--demo-muted);
+  font-size: 12px;
+  line-height: 1.2;
+  text-align: center;
 }
 .kin-panel {
   display: flex;
@@ -1464,6 +1498,34 @@ KINEMATIC_TREE_EDITOR_CSS = """
   #kin-tree-editor .kin-node {
     width: min(128px, 48vw) !important;
   }
+}
+"""
+
+EXAMPLE_PICKER_JS = r"""
+() => {
+  function wireExamplePicker() {
+    const grid = document.getElementById("example-mesh-grid");
+    const indexField = document.querySelector(
+      "#example_mesh_index textarea, #example_mesh_index input"
+    );
+    if (!grid || !indexField) {
+      window.setTimeout(wireExamplePicker, 100);
+      return;
+    }
+    grid.querySelectorAll("[data-example-index]").forEach((button) => {
+      if (button.dataset.examplePickerBound === "1") {
+        return;
+      }
+      button.dataset.examplePickerBound = "1";
+      button.addEventListener("click", () => {
+        indexField.value = button.dataset.exampleIndex || "";
+        indexField.dispatchEvent(new Event("input", { bubbles: true }));
+        indexField.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+    });
+  }
+
+  wireExamplePicker();
 }
 """
 
@@ -3033,6 +3095,14 @@ def _timestamped_mesh_output_dir(output_root: Path, mesh_hash: str, suffix: str 
     return output_root / "_".join(name_parts)
 
 
+def _copy_original_input_mesh(mesh_path: Path, output_dir: Path) -> Path:
+    suffix = mesh_path.suffix.lower() or ".mesh"
+    output_path = output_dir / f"input_mesh_original{suffix}"
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(mesh_path, output_path)
+    return output_path
+
+
 def _upright_preview_cache_dir(mesh_hash: str) -> Path:
     return _mesh_cache_dir(mesh_hash) / "upright_previews"
 
@@ -3934,6 +4004,17 @@ class InstructParticulateApp:
             gr.update(value=None, interactive=False),
         )
 
+    def select_example_mesh(self, selected_index_value: Any):
+        examples = _example_meshes()
+        selected_index = int(str(selected_index_value).strip())
+        if selected_index < 0 or selected_index >= len(examples):
+            raise IndexError(
+                f"Example index {selected_index} is outside the available examples."
+            )
+        mesh_path = examples[selected_index]["mesh_path"]
+        for result in self.register_mesh(mesh_path):
+            yield (mesh_path, *result)
+
     def extract_kinematic_structure(
         self,
         mesh_path_value: Any,
@@ -3983,6 +4064,7 @@ class InstructParticulateApp:
             auto_output_dir = output_dir / "auto_kinematics"
             renders_dir = auto_output_dir / "renders"
             auto_output_dir.mkdir(parents=True, exist_ok=True)
+            _copy_original_input_mesh(mesh_path, output_dir)
 
             mesh_geometry = self._prepare_geometry(mesh_path, canonical_up)
 
@@ -4130,6 +4212,7 @@ class InstructParticulateApp:
             mesh_hash = str(mesh_hash_value or _mesh_file_sha256(mesh_path))
             output_dir = _timestamped_mesh_output_dir(self.output_root, mesh_hash)
             output_dir.mkdir(parents=True, exist_ok=True)
+            input_mesh_copy_path = _copy_original_input_mesh(mesh_path, output_dir)
             num_query_points_value = int(num_query_points)
             num_query_points_per_face_for_seg_value = (
                 None
@@ -4225,6 +4308,7 @@ class InstructParticulateApp:
                     "joint_decoding_confidence_temperature": joint_decoding_confidence_temperature_value,
                 },
                 "mesh_path": str(mesh_path),
+                "input_mesh_copy_path": str(input_mesh_copy_path),
                 "up_dir": str(canonical_up),
                 "output_dir": str(output_dir),
                 "batch": _to_cpu_payload(batch),
@@ -4364,6 +4448,7 @@ class InstructParticulateApp:
             output_payload = {
                 "args": args_payload,
                 "mesh_path": str(mesh_path),
+                "input_mesh_copy_path": str(payload["input_mesh_copy_path"]),
                 "up_dir": str(canonical_up),
                 "output_dir": str(output_dir),
                 "query_face_indices": np.asarray(
@@ -4401,6 +4486,7 @@ class InstructParticulateApp:
 
         args_payload = dict(payload["args"])
         mesh_path = Path(str(payload["mesh_path"]))
+        input_mesh_copy_path = Path(str(payload["input_mesh_copy_path"]))
         canonical_up = str(payload["up_dir"])
         output_dir = Path(str(payload["output_dir"]))
         visualization_path = Path(str(payload["visualization_path"]))
@@ -4435,6 +4521,7 @@ class InstructParticulateApp:
             joint_decoding_confidence_temperature=float(
                 args_payload["joint_decoding_confidence_temperature"]
             ),
+            input_mesh_copy_path=input_mesh_copy_path,
         )
         return (
             str(output_dir / "animated_textured.glb"),
@@ -4608,6 +4695,7 @@ class InstructParticulateApp:
         animation_frames: int,
         enforce_connectivity_per_part: bool,
         joint_decoding_confidence_temperature: float,
+        input_mesh_copy_path: Path,
     ) -> None:
         motion_output = prediction["motion_output"]
         joint_refit_sampling = prediction["joint_refit_sampling"]
@@ -4737,6 +4825,7 @@ class InstructParticulateApp:
             visualization_path=visualization_path,
             overparam_visualization_path=overparam_visualization_path,
             optional_paths={
+                "input_mesh_original_path": input_mesh_copy_path,
                 "overparam_visualization_path": overparam_visualization_path,
                 "urdf_export_payload_path": output_dir / "urdf_export_payload.npz",
             },
@@ -4835,11 +4924,53 @@ def prepare_inference_ui():
     )
 
 
-def _example_meshes() -> list[list[str]]:
+def _example_meshes() -> list[dict[str, str]]:
     examples_dir = REPO_ROOT / "examples"
-    if not examples_dir.exists():
+    render_dir = examples_dir / "render"
+    if not examples_dir.exists() or not render_dir.exists():
         return []
-    return [[str(path)] for path in sorted(examples_dir.glob("*.glb"))]
+    image_suffixes = (".png", ".jpg", ".jpeg", ".webp")
+    examples: list[dict[str, str]] = []
+    for mesh_path in sorted(examples_dir.glob("*.glb")):
+        preview_path = next(
+            (
+                render_dir / f"{mesh_path.stem}{suffix}"
+                for suffix in image_suffixes
+                if (render_dir / f"{mesh_path.stem}{suffix}").exists()
+            ),
+            None,
+        )
+        if preview_path is None:
+            continue
+        examples.append(
+            {
+                "label": mesh_path.stem,
+                "mesh_path": str(mesh_path),
+                "preview_path": str(preview_path),
+            }
+        )
+    return examples
+
+
+def _example_mesh_grid_html(examples: list[dict[str, str]]) -> str:
+    buttons: list[str] = []
+    for index, example in enumerate(examples):
+        preview_path = Path(example["preview_path"]).resolve()
+        label = html.escape(example["label"])
+        src = html.escape(f"/file={preview_path}")
+        buttons.append(
+            f"""
+            <button class="example-preview-button" type="button" data-example-index="{index}">
+              <img src="{src}" alt="Example {label}" loading="lazy" />
+              <span>{label}</span>
+            </button>
+            """
+        )
+    return f"""
+    <div id="example-mesh-grid" class="example-preview-grid">
+      {''.join(buttons)}
+    </div>
+    """
 
 
 def _html_attr_json(value: dict[str, Any]) -> str:
@@ -4955,15 +5086,25 @@ def create_gradio_app(app: InstructParticulateApp) -> gr.Blocks:
         )
         latest_output_dir = gr.State(None)
         inference_payload = gr.State(None)
+        example_mesh_index = gr.Textbox(
+            value="",
+            label="Example Mesh Index",
+            elem_id="example_mesh_index",
+            elem_classes=["kinematic-json-sync"],
+        )
 
         with gr.Row(equal_height=True, elem_classes=["demo-row", "demo-top-row"]):
             with gr.Column(scale=1, min_width=300, elem_classes=["demo-panel", "mesh-panel"]):
                 input_mesh = gr.Model3D(label="Input Mesh", interactive=True, height=300)
                 examples = _example_meshes()
-                examples_container = None
                 if examples:
-                    with gr.Column(elem_classes=["mesh-examples"]) as examples_container:
-                        pass
+                    with gr.Column(elem_classes=["mesh-examples"]):
+                        gr.Markdown("Examples")
+                        gr.HTML(
+                            _example_mesh_grid_html(examples),
+                            container=False,
+                            padding=False,
+                        )
 
             with gr.Column(scale=1, min_width=300, elem_classes=["demo-panel", "kin-panel"]):
                 extract_button = gr.Button("Extract Kinematic Structure")
@@ -5102,29 +5243,25 @@ def create_gradio_app(app: InstructParticulateApp) -> gr.Blocks:
                     elem_classes=["compact-status"],
                 )
 
-        if examples and examples_container is not None:
-            with examples_container:
-                gr.Examples(
-                    examples=examples,
-                    inputs=[input_mesh],
-                    outputs=[
-                        loaded_mesh_path,
-                        loaded_mesh_hash,
-                        mesh_face_warning,
-                        kinematic_tree,
-                        point_prompts,
-                        point_prompt_mesh_data,
-                        *upright_preview_images,
-                        selected_up_dir,
-                        latest_output_dir,
-                        export_urdf_button,
-                        urdf_zip,
-                    ],
-                    fn=app.register_mesh,
-                    run_on_click=True,
-                    cache_examples=False,
-                    label="Examples",
-                )
+        if examples:
+            example_mesh_index.change(
+                fn=app.select_example_mesh,
+                inputs=[example_mesh_index],
+                outputs=[
+                    input_mesh,
+                    loaded_mesh_path,
+                    loaded_mesh_hash,
+                    mesh_face_warning,
+                    kinematic_tree,
+                    point_prompts,
+                    point_prompt_mesh_data,
+                    *upright_preview_images,
+                    selected_up_dir,
+                    latest_output_dir,
+                    export_urdf_button,
+                    urdf_zip,
+                ],
+            )
 
         input_mesh.change(
             fn=app.register_mesh,
@@ -5237,6 +5374,7 @@ def create_gradio_app(app: InstructParticulateApp) -> gr.Blocks:
             inputs=[latest_output_dir],
             outputs=[urdf_zip, urdf_status],
         )
+        demo.load(fn=None, js=EXAMPLE_PICKER_JS)
         demo.load(fn=None, js=UPRIGHT_PICKER_JS)
         demo.load(fn=None, js=KINEMATIC_TREE_EDITOR_JS)
         demo.queue()
@@ -5254,5 +5392,8 @@ if __name__ == "__main__":
         server_port=port,
         share=share,
         ssr_mode=False,
-        allowed_paths=[str(demo_app.output_root.resolve())],
+        allowed_paths=[
+            str(demo_app.output_root.resolve()),
+            str((REPO_ROOT / "examples").resolve()),
+        ],
     )

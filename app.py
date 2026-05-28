@@ -383,7 +383,7 @@ DEMO_CSS = """
   overflow: visible;
   border: 1px solid var(--demo-border);
   border-radius: 6px;
-  padding: 8px;
+  padding: 8px 8px 0;
   background: var(--demo-panel-bg);
   color: var(--demo-text) !important;
 }
@@ -391,19 +391,19 @@ DEMO_CSS = """
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(68px, 1fr));
   gap: 8px;
+  margin-bottom: 0;
 }
 .example-preview-button {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 4px;
+  display: block;
   min-width: 0;
+  aspect-ratio: 1 / 1;
   padding: 0;
   border: 1px solid var(--demo-border);
   border-radius: 6px;
   background: var(--demo-panel-bg);
   color: var(--demo-text);
   cursor: pointer;
+  line-height: 0;
   overflow: hidden;
 }
 .example-preview-button:hover,
@@ -414,15 +414,8 @@ DEMO_CSS = """
 .example-preview-button img {
   display: block;
   width: 100%;
-  aspect-ratio: 1 / 1;
+  height: 100%;
   object-fit: cover;
-}
-.example-preview-button span {
-  padding: 0 6px 6px;
-  color: var(--demo-muted);
-  font-size: 12px;
-  line-height: 1.2;
-  text-align: center;
 }
 .kin-panel {
   display: flex;
@@ -4962,7 +4955,6 @@ def _example_mesh_grid_html(examples: list[dict[str, str]]) -> str:
             f"""
             <button class="example-preview-button" type="button" data-example-index="{index}">
               <img src="{src}" alt="Example {label}" loading="lazy" />
-              <span>{label}</span>
             </button>
             """
         )

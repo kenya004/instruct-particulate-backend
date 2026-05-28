@@ -109,7 +109,7 @@ AUTO_KINEMATICS_REASONING_EFFORT = "medium"
 AUTO_KINEMATICS_CACHE_VERSION = 3
 INFERENCE_NO_POINT_PROMPT = True
 INFERENCE_EXPORT_URDF_DURING_WRITE = False
-HIGH_FACE_COUNT_WARNING_THRESHOLD = 100_000
+HIGH_FACE_COUNT_WARNING_THRESHOLD = 500_000
 
 DEFAULT_KINEMATIC_TREE = {
     "links": [
@@ -5054,7 +5054,7 @@ def create_gradio_app(app: InstructParticulateApp) -> gr.Blocks:
                 <p>Upload one object mesh and provide or extract a kinematic tree. The demo predicts part segmentation and joint parameters, then exports animated GLB and URDF assets.</p>
                 <h3>How to use the demo:</h3>
                 <ol>
-                  <li><strong>Upload a mesh:</strong> use the Input Mesh panel or select an example. For reliable runs, use a simplified mesh with fewer than 100,000 faces.</li>
+                  <li><strong>Upload a mesh:</strong> use the Input Mesh panel or select an example. For reliable runs, use a simplified mesh with fewer than 500,000 faces.</li>
                   <li><strong>Choose the upright orientation:</strong> click the preview where the object is upright. This orientation is used for both auto-kinematic extraction and inference.</li>
                   <li><strong>Define the kinematic tree:</strong> edit links and joints manually, or click Extract Kinematic Structure to infer a starting tree and point prompts.</li>
                   <li><strong>Add optional point prompts:</strong> select a link in the Kinematic Tree Editor, then click the mesh in the Point Prompt Picker to mark a representative point for that link.</li>

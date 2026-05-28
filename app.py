@@ -5022,14 +5022,14 @@ def create_gradio_app(app: InstructParticulateApp) -> gr.Blocks:
                 <p>Upload one object mesh and provide or extract a kinematic tree. The demo predicts part segmentation and joint parameters, then exports animated GLB and URDF assets.</p>
                 <h3>How to use the demo:</h3>
                 <ol>
-                  <li><strong>Upload a mesh:</strong> use the Input Mesh panel or select an example. For reliable runs, use a simplified mesh with fewer than 100,000 faces.</li>
+                  <li><strong>Upload a mesh:</strong> use the Input Mesh panel or select an example. You can also generate an object with Hunyuan3D (<a href="https://3d.hunyuan.tencent.com/" target="_blank" rel="noopener noreferrer">China</a> or <a href="https://3d.hunyuanglobal.com/" target="_blank" rel="noopener noreferrer">International</a>), then bring the mesh here to make it interactive. For efficient processing, select the 50k-point option when generating or simplifying the mesh.</li>
                   <li><strong>Choose the upright orientation:</strong> click the preview where the object is upright. This orientation is used for both auto-kinematic extraction and inference.</li>
                   <li><strong>Define the kinematic tree:</strong> edit links and joints manually, or click Extract Kinematic Structure to infer a starting tree and point prompts.</li>
                   <li><strong>Add optional point prompts:</strong> select a link in the Kinematic Tree Editor, then click the mesh in the Point Prompt Picker to mark a representative point for that link.</li>
                   <li><strong>Run inference:</strong> keep Connected Component Postprocessing on when the mesh has clean connected components, then click Run Inference.</li>
                   <li><strong>Review and export:</strong> inspect the point query visualization, articulated model, and predicted parts and axes, then export the URDF when the output is ready.</li>
                 </ol>
-                <p class="demo-note">Large meshes are rejected before rendering or point-prompt setup so the Space remains responsive.</p>
+                <p class="demo-note">Meshes above 100,000 faces may be slow or fail on the Space CPU; simplified meshes are recommended for reliable runs.</p>
               </div>
             </div>
             """

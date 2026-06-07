@@ -49,3 +49,9 @@ examples/render/004.png filter=lfs diff=lfs merge=lfs -text
 examples/render/005.png filter=lfs diff=lfs merge=lfs -text
 examples/render/006.png filter=lfs diff=lfs merge=lfs -text
 instruct_particulate_1m_warning_e22a80a.png filter=lfs diff=lfs merge=lfs -text
+examples/007.glb filter=lfs diff=lfs merge=lfs -text
+examples/008.glb filter=lfs diff=lfs merge=lfs -text
+examples/009.glb filter=lfs diff=lfs merge=lfs -text
+examples/render/007.png filter=lfs diff=lfs merge=lfs -text
+examples/render/008.png filter=lfs diff=lfs merge=lfs -text
+examples/render/009.png filter=lfs diff=lfs merge=lfs -text

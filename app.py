@@ -390,7 +390,7 @@ DEMO_CSS = """
 }
 .example-preview-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(68px, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 8px;
   margin-bottom: 0;
 }

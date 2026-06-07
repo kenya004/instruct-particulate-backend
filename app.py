@@ -3883,17 +3883,26 @@ class InstructParticulateApp:
         warning_face_count = max(face_count, int(early_face_count or 0))
         mesh_face_warning = _mesh_face_warning_update_from_face_count(warning_face_count)
         cached_upright_previews = _cached_upright_preview_items(mesh_hash)
-        rendering_orientation_previews = (
-            _upright_preview_paths(cached_upright_previews)
-            if cached_upright_previews is not None
-            else _upright_rendering_preview_paths()
-        )
 
         try:
             prompt_mesh_data = _prompt_mesh_payload(mesh)
         except Exception:
             prompt_mesh_data = ""
 
+        if cached_upright_previews is not None:
+            orientation_previews = _upright_preview_paths(cached_upright_previews)
+        else:
+            try:
+                upright_previews = _render_up_direction_previews(
+                    mesh_path=mesh_path,
+                    mesh=mesh,
+                    mesh_hash=mesh_hash,
+                )
+                orientation_previews = _upright_preview_paths(upright_previews)
+            except Exception:
+                traceback.print_exc()
+                orientation_previews = empty_orientation_previews
+
         yield (
             str(mesh_path),
             mesh_hash,
@@ -3901,51 +3910,11 @@ class InstructParticulateApp:
             default_tree_json,
             default_point_prompt_json,
             prompt_mesh_data,
-            *rendering_orientation_previews,
+            *orientation_previews,
             "",
             None,
             gr.update(interactive=False),
             gr.update(value=None, interactive=False),
-        )
-
-        if cached_upright_previews is not None:
-            return
-
-        try:
-            upright_previews = _render_up_direction_previews(
-                mesh_path=mesh_path,
-                mesh=mesh,
-                mesh_hash=mesh_hash,
-            )
-        except Exception:
-            traceback.print_exc()
-            yield (
-                str(mesh_path),
-                mesh_hash,
-                mesh_face_warning,
-                default_tree_json,
-                default_point_prompt_json,
-                prompt_mesh_data,
-                *empty_orientation_previews,
-                gr.skip(),
-                gr.skip(),
-                gr.skip(),
-                gr.skip(),
-            )
-            return
-
-        yield (
-            str(mesh_path),
-            mesh_hash,
-            mesh_face_warning,
-            default_tree_json,
-            default_point_prompt_json,
-            prompt_mesh_data,
-            *_upright_preview_paths(upright_previews),
-            gr.skip(),
-            gr.skip(),
-            gr.skip(),
-            gr.skip(),
         )
 
     def select_example_mesh(self, selected_index_value: Any):

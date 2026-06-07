@@ -1542,6 +1542,7 @@ UPRIGHT_PICKER_JS = r"""
     return;
   }
   window.__instructParticulateUprightPickerReady = true;
+  let lastSelectedValue = "";
 
   function selectedField() {
     return document.querySelector("#selected_up_dir textarea, #selected_up_dir input");
@@ -1552,6 +1553,7 @@ UPRIGHT_PICKER_JS = r"""
   }
 
   function updateCards(selectedValue) {
+    lastSelectedValue = selectedValue || "";
     choices.forEach(([upDir, slug]) => {
       const card = cardForSlug(slug);
       if (!card) {
@@ -1601,7 +1603,11 @@ UPRIGHT_PICKER_JS = r"""
 
   const syncFromField = () => {
     const field = selectedField();
-    updateCards(field ? field.value : "");
+    if (!field) {
+      updateCards(lastSelectedValue);
+      return;
+    }
+    updateCards(field.value || "");
   };
   const observer = new MutationObserver(syncFromField);
   observer.observe(document.body, {
@@ -4837,6 +4843,10 @@ def prepare_inference_ui():
     )
 
 
+def prepare_auto_kinematics_ui():
+    return "Starting auto-kinematic extraction..."
+
+
 def _example_meshes() -> list[dict[str, str]]:
     examples_dir = REPO_ROOT / "examples"
     render_dir = examples_dir / "render"
@@ -5175,24 +5185,39 @@ def create_gradio_app(app: InstructParticulateApp) -> gr.Blocks:
                 ],
             )
 
-        input_mesh.change(
-            fn=app.register_mesh,
-            inputs=[input_mesh, loaded_mesh_hash],
-            outputs=[
-                loaded_mesh_path,
-                loaded_mesh_hash,
-                mesh_face_warning,
-                kinematic_tree,
-                point_prompts,
-                point_prompt_mesh_data,
-                *upright_preview_images,
-                selected_up_dir,
-                latest_output_dir,
-                export_urdf_button,
-                urdf_zip,
-            ],
+        mesh_registration_outputs = [
+            loaded_mesh_path,
+            loaded_mesh_hash,
+            mesh_face_warning,
+            kinematic_tree,
+            point_prompts,
+            point_prompt_mesh_data,
+            *upright_preview_images,
+            selected_up_dir,
+            latest_output_dir,
+            export_urdf_button,
+            urdf_zip,
+        ]
+        mesh_upload_event = getattr(input_mesh, "upload", None)
+        if callable(mesh_upload_event):
+            mesh_upload_event(
+                fn=app.register_mesh,
+                inputs=[input_mesh, loaded_mesh_hash],
+                outputs=mesh_registration_outputs,
+            )
+        else:
+            input_mesh.change(
+                fn=app.register_mesh,
+                inputs=[input_mesh, loaded_mesh_hash],
+                outputs=mesh_registration_outputs,
+            )
+        extract_start_event = extract_button.click(
+            fn=prepare_auto_kinematics_ui,
+            inputs=None,
+            outputs=[auto_status],
+            queue=False,
         )
-        extract_button.click(
+        extract_start_event.then(
             fn=app.extract_kinematic_structure,
             inputs=[
                 loaded_mesh_path,

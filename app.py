@@ -3815,11 +3815,13 @@ class InstructParticulateApp:
     def register_mesh(
         self,
         mesh_value: Any,
+        current_mesh_hash: Any = None,
     ):
         empty_orientation_previews = [None] * len(UP_DIR_CHOICES)
         default_tree_json = _tree_to_pretty_json(DEFAULT_KINEMATIC_TREE)
         default_point_prompt_json = '{"prompts":[]}'
         hidden_mesh_face_warning = ""
+        skip_outputs = tuple(gr.skip() for _ in range(16))
         mesh_path = _extract_gradio_path(mesh_value)
         if mesh_path is None:
             yield (
@@ -3839,6 +3841,27 @@ class InstructParticulateApp:
         early_face_count = _obj_face_count_from_path(mesh_path)
         try:
             mesh_hash = _mesh_file_sha256(mesh_path)
+        except Exception:
+            yield (
+                None,
+                None,
+                hidden_mesh_face_warning,
+                default_tree_json,
+                default_point_prompt_json,
+                "",
+                *empty_orientation_previews,
+                "",
+                None,
+                gr.update(interactive=False),
+                gr.update(value=None, interactive=False),
+            )
+            return
+
+        if str(current_mesh_hash or "").strip() == mesh_hash:
+            yield skip_outputs
+            return
+
+        try:
             mesh = load_trimesh(mesh_path)
         except Exception:
             yield (
@@ -3865,37 +3888,11 @@ class InstructParticulateApp:
             if cached_upright_previews is not None
             else _upright_rendering_preview_paths()
         )
-        yield (
-            str(mesh_path),
-            mesh_hash,
-            mesh_face_warning,
-            default_tree_json,
-            default_point_prompt_json,
-            "",
-            *rendering_orientation_previews,
-            "",
-            None,
-            gr.update(interactive=False),
-            gr.update(value=None, interactive=False),
-        )
 
         try:
             prompt_mesh_data = _prompt_mesh_payload(mesh)
         except Exception:
-            yield (
-                str(mesh_path),
-                mesh_hash,
-                mesh_face_warning,
-                default_tree_json,
-                default_point_prompt_json,
-                "",
-                *rendering_orientation_previews,
-                "",
-                None,
-                gr.update(interactive=False),
-                gr.update(value=None, interactive=False),
-            )
-            return
+            prompt_mesh_data = ""
 
         yield (
             str(mesh_path),
@@ -3910,20 +3907,8 @@ class InstructParticulateApp:
             gr.update(interactive=False),
             gr.update(value=None, interactive=False),
         )
+
         if cached_upright_previews is not None:
-            yield (
-                str(mesh_path),
-                mesh_hash,
-                mesh_face_warning,
-                default_tree_json,
-                default_point_prompt_json,
-                prompt_mesh_data,
-                *_upright_preview_paths(cached_upright_previews),
-                "",
-                None,
-                gr.update(interactive=False),
-                gr.update(value=None, interactive=False),
-            )
             return
 
         try:
@@ -3942,10 +3927,10 @@ class InstructParticulateApp:
                 default_point_prompt_json,
                 prompt_mesh_data,
                 *empty_orientation_previews,
-                "",
-                None,
-                gr.update(interactive=False),
-                gr.update(value=None, interactive=False),
+                gr.skip(),
+                gr.skip(),
+                gr.skip(),
+                gr.skip(),
             )
             return
 
@@ -3957,10 +3942,10 @@ class InstructParticulateApp:
             default_point_prompt_json,
             prompt_mesh_data,
             *_upright_preview_paths(upright_previews),
-            "",
-            None,
-            gr.update(interactive=False),
-            gr.update(value=None, interactive=False),
+            gr.skip(),
+            gr.skip(),
+            gr.skip(),
+            gr.skip(),
         )
 
     def select_example_mesh(self, selected_index_value: Any):
@@ -5223,7 +5208,7 @@ def create_gradio_app(app: InstructParticulateApp) -> gr.Blocks:
 
         input_mesh.change(
             fn=app.register_mesh,
-            inputs=[input_mesh],
+            inputs=[input_mesh, loaded_mesh_hash],
             outputs=[
                 loaded_mesh_path,
                 loaded_mesh_hash,

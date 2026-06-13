@@ -4981,7 +4981,6 @@ def create_gradio_app(app: InstructParticulateApp) -> gr.Blocks:
     global _ACTIVE_APP
     _ACTIVE_APP = app
     with gr.Blocks(title="Instruct Particulate Demo") as demo:
-        best_practice_banner()
         gr.HTML(
             f"""
             <style>
@@ -5006,6 +5005,7 @@ def create_gradio_app(app: InstructParticulateApp) -> gr.Blocks:
             </div>
             """
         )
+        best_practice_banner()
         mesh_face_warning = gr.HTML(
             value="",
             visible=True,

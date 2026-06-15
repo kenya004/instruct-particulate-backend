@@ -4989,8 +4989,8 @@ def create_gradio_app(app: InstructParticulateApp) -> gr.Blocks:
             <div class="demo-intro">
               <h1>Instruct-Particulate</h1>
               <p>
-                <a href="https://arxiv.org/abs/2606.14699">💻 Technical Report</a> |
-                <a href="https://instruct-particulate.github.io/">Project Page</a>
+                <a href="https://arxiv.org/abs/2606.14699" target="_blank">💻 Technical Report</a> |
+                <a href="https://instruct-particulate.github.io/" target="_blank">Project Page</a>
               </p>
               <div class="demo-instructions">
                 <p>Upload one object mesh and provide or extract a kinematic tree. The demo predicts part segmentation and joint parameters, then exports animated GLB and URDF assets.</p>

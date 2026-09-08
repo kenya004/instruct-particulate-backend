@@ -13,6 +13,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from zerogpu_runtime import configure_zerogpu_cgroup
+
+# spaces captures ZEROGPU_PROC_SELF_CGROUP_PATH at import time.
+configure_zerogpu_cgroup()
+
 import gradio as gr
 from huggingface_hub import hf_hub_download, snapshot_download
 import numpy as np

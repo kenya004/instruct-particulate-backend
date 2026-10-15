@@ -5,3 +5,8 @@ __pycache__/
 gradio_output/
 data/
 .cache/
+ip_object_name/local_settings.py
+.venv/
+data/
+partfield/model/
+runs/**/checkpoints/
